@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1776190605755,
+    "name": "r/srm",
+    "title": "srm complainer",
+    "description": ""
+  },
+  {
+    "id": 1,
+    "name": "announcements",
+    "title": "Announcements",
+    "description": "Official updates and highlights from the community."
+  },
+  {
+    "id": 2,
+    "name": "photography",
+    "title": "Photography",
+    "description": "Share your favorite moments and visual stories."
+  },
+  {
+    "id": 3,
+    "name": "campuslife",
+    "title": "Campus Life",
+    "description": "Talk about events, student life, and day-to-day updates."
+  }
+]
