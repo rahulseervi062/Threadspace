@@ -1,4 +1,4 @@
-import cors from "cors";
+ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import fs from "fs";
@@ -44,7 +44,7 @@ const demoEmail = process.env.DEMO_EMAIL || "demo@site.com";
 const demoPassword = process.env.DEMO_PASSWORD || "Password@123";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const publicDir = path.resolve(__dirname, "../../frontend/dist");
+const publicDir = path.resolve(__dirname, "../../../frontend/dist");
 const dataDir = path.resolve(__dirname, "../data");
 const postsFile = path.join(dataDir, "posts.json");
 const usersFile = path.join(dataDir, "users.json");
@@ -1355,12 +1355,18 @@ app.delete("/api/posts/:id", (req, res) => {
   });
 });
 
+/* Serve frontend static files */
+app.use(express.static(publicDir));
+
 /* Catch-all for unknown routes */
 app.use((req, res) => {
-  res.status(404).json({
-    ok: false,
-    message: "API route not found"
-  });
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({
+      ok: false,
+      message: "API route not found"
+    });
+  }
+  res.sendFile(path.join(publicDir, "index.html"));
 });
 
 /* ✅ FIXED SERVER START */
