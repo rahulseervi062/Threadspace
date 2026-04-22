@@ -10,25 +10,20 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
+import { createServer } from "http";
+import { Server } from "socket.io";
 
 dotenv.config();
 
-let transporter = null;
-try {
-  if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS
-      }
-    });
-  } else {
-    console.warn("⚠️  GMAIL_USER or GMAIL_PASS not set — email sending disabled.");
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS
   }
-} catch (err) {
-  console.error("Failed to create mail transporter:", err.message);
-}
+});
 
 const otpStore = new Map();
 
@@ -39,7 +34,7 @@ const io = new Server(server, {
     origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173"
   }
 });
-const port = Number(process.env.PORT || 4001);
+const port = Number(process.env.PORT || 4000);
 const demoEmail = process.env.DEMO_EMAIL || "demo@site.com";
 const demoPassword = process.env.DEMO_PASSWORD || "Password@123";
 const __filename = fileURLToPath(import.meta.url);
@@ -54,19 +49,11 @@ const collectionsFile = path.join(dataDir, "collections.json");
 const demoPhone = process.env.DEMO_PHONE || "9999999999";
 
 // Configure Cloudinary
-try {
-  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET
-    });
-  } else {
-    console.warn("⚠️  Cloudinary env vars not set — image uploads will be disabled.");
-  }
-} catch (err) {
-  console.error("Failed to configure Cloudinary:", err.message);
-}
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -80,14 +67,6 @@ if (!fs.existsSync(postsFile)) {
   fs.writeFileSync(postsFile, "[]", "utf8");
 }
 
-if (!fs.existsSync(messagesFile)) {
-  fs.writeFileSync(messagesFile, "[]", "utf8");
-}
-
-if (!fs.existsSync(collectionsFile)) {
-  fs.writeFileSync(collectionsFile, "[]", "utf8");
-}
-
 if (!fs.existsSync(usersFile)) {
   fs.writeFileSync(
     usersFile,
@@ -99,10 +78,7 @@ if (!fs.existsSync(usersFile)) {
           email: demoEmail,
           phone: demoPhone,
           password: demoPassword,
-          createdAt: new Date().toISOString(),
-          following: [],
-          followers: [20000000000],
-          karma: 0
+          createdAt: new Date().toISOString()
         }
       ],
       null,
@@ -188,16 +164,7 @@ function readUsers() {
           phone: demoPhone
         };
       }
-      // Add new fields if missing
-      if (!user.following) {
-        changed = true;
-        return {
-          ...user,
-          following: [],
-          followers: [],
-          karma: 0
-        };
-      }
+
       return user;
     });
 
@@ -249,8 +216,7 @@ app.use(
     origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173"
   })
 );
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "login-api" });
@@ -304,17 +270,13 @@ app.post("/api/login", (req, res) => {
 
   console.log(`OTP for ${email}: ${otp}`); // For testing - remove in production
 
-  if (transporter) {
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.error('Error sending email:', error);
-      } else {
-        console.log('Email sent:', info.response);
-      }
-    });
-  } else {
-    console.warn("Email not sent — transporter not configured.");
-  }
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      console.error('Error sending email:', error);
+    } else {
+      console.log('Email sent:', info.response);
+    }
+  });
 
   return res.status(401).json({
     ok: false,
@@ -463,15 +425,6 @@ app.post("/api/forgot-password", (req, res) => {
   };
 
   console.log(`Password reset OTP for ${user.email}: ${otp}`);
-
-  if (!transporter) {
-    return res.json({
-      ok: true,
-      message: "A password reset OTP has been sent to your email.",
-      requiresOtp: true,
-      email: user.email
-    });
-  }
 
   return transporter.sendMail(mailOptions)
     .then(() =>
@@ -647,170 +600,6 @@ app.post("/api/account/password", (req, res) => {
   });
 });
 
-// Following endpoints
-app.post("/api/users/:id/follow", (req, res) => {
-  const targetUserId = Number(req.params.id);
-  const { userEmail } = req.body ?? {};
-
-  if (!userEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "User email is required."
-    });
-  }
-
-  const users = readUsers();
-  const currentUserIndex = users.findIndex((user) => user.email === userEmail);
-  const targetUserIndex = users.findIndex((user) => user.id === targetUserId);
-
-  if (currentUserIndex === -1 || targetUserIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  if (currentUserIndex === targetUserIndex) {
-    return res.status(400).json({
-      ok: false,
-      message: "Cannot follow yourself."
-    });
-  }
-
-  const currentUser = users[currentUserIndex];
-  const targetUser = users[targetUserIndex];
-
-  if (currentUser.following.includes(targetUserId)) {
-    return res.status(409).json({
-      ok: false,
-      message: "Already following this user."
-    });
-  }
-
-  currentUser.following.push(targetUserId);
-  targetUser.followers.push(currentUser.id);
-
-  writeUsers(users);
-
-  return res.json({
-    ok: true,
-    message: "User followed successfully."
-  });
-});
-
-app.delete("/api/users/:id/follow", (req, res) => {
-  const targetUserId = Number(req.params.id);
-  const userEmail = String(req.query.userEmail || "");
-
-  if (!userEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "User email is required."
-    });
-  }
-
-  const users = readUsers();
-  const currentUserIndex = users.findIndex((user) => user.email === userEmail);
-  const targetUserIndex = users.findIndex((user) => user.id === targetUserId);
-
-  if (currentUserIndex === -1 || targetUserIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  const currentUser = users[currentUserIndex];
-  const targetUser = users[targetUserIndex];
-
-  currentUser.following = currentUser.following.filter(id => id !== targetUserId);
-  targetUser.followers = targetUser.followers.filter(id => id !== currentUser.id);
-
-  writeUsers(users);
-
-  return res.json({
-    ok: true,
-    message: "User unfollowed successfully."
-  });
-});
-
-// Follow subreddit
-app.post("/api/subreddits/:name/follow", (req, res) => {
-  const subredditName = req.params.name;
-  const { userEmail } = req.body ?? {};
-
-  if (!userEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "User email is required."
-    });
-  }
-
-  const users = readUsers();
-  const userIndex = users.findIndex((user) => user.email === userEmail);
-
-  if (userIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  const user = users[userIndex];
-  if (!user.followingSubreddits) {
-    user.followingSubreddits = [];
-  }
-
-  if (user.followingSubreddits.includes(subredditName)) {
-    return res.status(409).json({
-      ok: false,
-      message: "Already following this subreddit."
-    });
-  }
-
-  user.followingSubreddits.push(subredditName);
-  writeUsers(users);
-
-  return res.json({
-    ok: true,
-    message: "Subreddit followed successfully."
-  });
-});
-
-app.delete("/api/subreddits/:name/follow", (req, res) => {
-  const subredditName = req.params.name;
-  const userEmail = String(req.query.userEmail || "");
-
-  if (!userEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "User email is required."
-    });
-  }
-
-  const users = readUsers();
-  const userIndex = users.findIndex((user) => user.email === userEmail);
-
-  if (userIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  const user = users[userIndex];
-  if (user.followingSubreddits) {
-    user.followingSubreddits = user.followingSubreddits.filter(name => name !== subredditName);
-  }
-
-  writeUsers(users);
-
-  return res.json({
-    ok: true,
-    message: "Subreddit unfollowed successfully."
-  });
-});
-
 app.get("/api/subreddits", (_req, res) => {
   res.json({
     ok: true,
@@ -819,7 +608,7 @@ app.get("/api/subreddits", (_req, res) => {
 });
 
 app.post("/api/subreddits", (req, res) => {
-  const { name, title, description, rules } = req.body ?? {};
+  const { name, title, description } = req.body ?? {};
 
   if (!name || !title) {
     return res.status(400).json({
@@ -843,9 +632,7 @@ app.post("/api/subreddits", (req, res) => {
     id: Date.now(),
     name: normalizedName,
     title: String(title).trim(),
-    description: String(description || "").trim(),
-    rules: String(rules || "").trim(),
-    moderators: [req.body.creatorEmail || "demo@site.com"] // Add creator as mod
+    description: String(description || "").trim()
   };
 
   subreddits.unshift(subreddit);
@@ -854,9 +641,6 @@ app.post("/api/subreddits", (req, res) => {
   return res.status(201).json({
     ok: true,
     subreddit
-  });
-});
-
 app.get("/api/search", (req, res) => {
   const query = String(req.query.q || "").trim().toLowerCase();
   const type = String(req.query.type || "all").toLowerCase();
@@ -912,68 +696,6 @@ app.get("/api/posts", (_req, res) => {
   res.json({
     ok: true,
     posts
-  });
-});
-
-// ⚠️ These MUST be defined before /api/posts/:id to avoid Express matching
-// "trending" and "recommended" as the :id param.
-
-// Trending posts
-app.get("/api/posts/trending", (_req, res) => {
-  const posts = readPosts();
-  const now = Date.now();
-  const oneDayAgo = now - (24 * 60 * 60 * 1000);
-
-  const trendingPosts = posts
-    .filter(post => new Date(post.createdAt).getTime() > oneDayAgo)
-    .map(post => ({
-      ...post,
-      score: (post.likes || 0) + (post.comments?.length || 0) * 2
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 10);
-
-  res.json({
-    ok: true,
-    posts: trendingPosts
-  });
-});
-
-// Recommended posts
-app.get("/api/posts/recommended", (req, res) => {
-  const userEmail = String(req.query.userEmail || "");
-  if (!userEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "User email is required."
-    });
-  }
-
-  const users = readUsers();
-  const user = users.find(u => u.email === userEmail);
-  if (!user) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  const posts = readPosts();
-  const followedSubreddits = user.followingSubreddits || [];
-  const followedUsers = user.following || [];
-
-  // Get posts from followed subreddits and users
-  const recommendedPosts = posts.filter(post =>
-    followedSubreddits.includes(post.subreddit) ||
-    followedUsers.some(userId => {
-      const followedUser = users.find(u => u.id === userId);
-      return followedUser && followedUser.email === post.authorEmail;
-    })
-  ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  res.json({
-    ok: true,
-    posts: recommendedPosts
   });
 });
 
@@ -1090,25 +812,7 @@ app.post("/api/posts/:id/react", (req, res) => {
   post.likes = post.likedBy.length;
   post.dislikes = post.dislikedBy.length;
 
-  // Update karma for post author
-  const users = readUsers();
-  const authorIndex = users.findIndex(user => user.email === post.authorEmail);
-  if (authorIndex !== -1) {
-    // Reset karma calculation
-    users[authorIndex].karma = 0;
-    posts.forEach(p => {
-      if (p.authorEmail === post.authorEmail) {
-        users[authorIndex].karma += (p.likes || 0);
-        users[authorIndex].karma += (p.comments?.length || 0) * 2; // Comments give karma too
-      }
-    });
-    writeUsers(users);
-  }
-
   writePosts(posts);
-
-  // Emit socket event for real-time updates
-  io.emit('postReaction', { postId, post, userEmail, reaction });
 
   return res.json({
     ok: true,
@@ -1355,15 +1059,16 @@ app.delete("/api/posts/:id", (req, res) => {
   });
 });
 
-/* Catch-all for unknown routes */
-app.use((req, res) => {
-  res.status(404).json({
-    ok: false,
-    message: "API route not found"
-  });
+app.use(express.static(publicDir));
+
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/")) {
+    return next();
+  }
+
+  return res.sendFile(path.join(publicDir, "index.html"));
 });
 
-/* ✅ FIXED SERVER START */
-server.listen(port, () => {
+app.listen(port, () => {
   console.log(`Backend running at http://localhost:${port}`);
 });

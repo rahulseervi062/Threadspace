@@ -14,7 +14,7 @@ Minimal full-stack login page built with:
 ## Demo credentials
 
 - Email: `demo@site.com`
-- Password: `Password@123`
+- Password: `newpassword123`
 
 ## Features
 
@@ -54,9 +54,12 @@ Backend runs on `http://localhost:4001`
 
 
 backend
-cd /d "C:\Users\Hp\Documents\New project"
-npm.cmd --workspace backend run start
+cd "C:\Users\Hp\Documents\New project"
+npm.cmd --workspace backend run dev
  
  frontend
- cd /d "C:\Users\Hp\Documents\New project"
+ cd "C:\Users\Hp\Documents\New project"
 npm.cmd --workspace frontend run dev
+
+2nd backend link
+cd "C:\Users\Hp\Documents\New project" && npm --workspace backend run dev

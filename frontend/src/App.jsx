@@ -34,6 +34,10 @@ export default function App() {
   const [selectedCommunityName, setSelectedCommunityName] = useState("");
   const [sortMode, setSortMode] = useState("latest");
   const [themeMode, setThemeMode] = useState("dark");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState({ posts: [], subreddits: [], users: [] });
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedPostId, setSelectedPostId] = useState(null);
   const [form, setForm] = useState({
     name: "",
     email: "",

@@ -7,7 +7,10 @@
     "createdAt": "2026-04-14T00:00:00.000Z",
     "resetToken": "reset-1776532864385-bq35x69on",
     "resetTokenExpiry": 1776536464385,
-    "phone": "9999999999"
+    "phone": "9999999999",
+    "following": [],
+    "followers": [],
+    "karma": 0
   },
   {
     "id": 1776189436497,
@@ -16,13 +19,31 @@
     "password": "112008$Guddu",
     "createdAt": "2026-04-14T17:57:16.497Z",
     "resetToken": "reset-1776533869417-lr77hsjlx",
-    "resetTokenExpiry": 1776537469417
+    "resetTokenExpiry": 1776537469417,
+    "phone": "9413177503",
+    "following": [],
+    "followers": [],
+    "karma": 0
   },
   {
     "id": 1776533198900,
     "name": "arjun nambiar",
     "email": "nambiararjun4@gmail.com",
     "password": "arjun@123",
-    "createdAt": "2026-04-18T17:26:38.900Z"
+    "createdAt": "2026-04-18T17:26:38.900Z",
+    "following": [],
+    "followers": [],
+    "karma": 0
+  },
+  {
+    "id": 1776833459361,
+    "name": "lingeshwar",
+    "email": "lingeshwar687@gmail.com",
+    "phone": "9940440056",
+    "password": "123@lingeshwar",
+    "createdAt": "2026-04-22T04:50:59.361Z",
+    "following": [],
+    "followers": [],
+    "karma": 1
   }
 ]
