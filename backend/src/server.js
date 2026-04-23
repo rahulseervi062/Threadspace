@@ -37,7 +37,17 @@ import cors from "cors";
  const server = createServer(app);
  const io = new Server(server, {
    cors: {
-     origin: ["https://threadspace-frontend.vercel.app", "http://localhost:5173"]
+     origin: function(origin, callback) {
+    const allowed = [
+      'https://threadspace-frontend.vercel.app',
+      'http://localhost:5173'
+    ];
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
    }
  });
  const port = Number(process.env.PORT || 4001);
@@ -250,7 +260,17 @@ import cors from "cors";
 
  app.use(
    cors({
-     origin: ["https://threadspace-frontend.vercel.app", "http://localhost:5173"]
+     origin: function(origin, callback) {
+    const allowed = [
+      'https://threadspace-frontend.vercel.app',
+      'http://localhost:5173'
+    ];
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
    })
  );
  app.use(express.json({ limit: "50mb" }));
