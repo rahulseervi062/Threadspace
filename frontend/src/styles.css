@@ -1,4 +1,4 @@
-:root {
+ :root {
   color-scheme: dark;
   --bg: #0f141b;
   --bg-2: #16202a;
@@ -669,24 +669,229 @@ h1 {
   .app-grid {
     grid-template-columns: 1fr;
   }
+
+  .left-rail {
+    order: 2;
+  }
+
+  .main-column {
+    order: 1;
+  }
+
+  .right-rail {
+    order: 3;
+  }
+}
+
+@media (max-width: 768px) {
+  .reddit-shell {
+    padding: 12px;
+  }
+
+  .site-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 18px;
+  }
+
+  .site-brand {
+    font-size: 1.1rem;
+  }
+
+  .site-nav {
+    order: 3;
+    width: 100%;
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .site-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-link {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 8px 14px;
+    font-size: 0.88rem;
+  }
+
+  .app-grid {
+    gap: 14px;
+  }
+
+  .rail-card,
+  .content-card {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .section-head {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .section-head .post-button {
+    width: 100%;
+  }
+
+  h1 {
+    font-size: 1.6rem;
+  }
+
+  .post-actions {
+    gap: 6px;
+  }
+
+  .action-button {
+    padding: 8px 10px;
+    font-size: 0.85rem;
+  }
+
+  .feed-card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .community-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .subreddit-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .subreddit-pill {
+    width: auto;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
 }
 
 @media (max-width: 520px) {
   .reddit-shell,
   .page-shell {
-    padding: 16px;
+    padding: 10px;
   }
 
-  .login-panel,
-  .site-header,
-  .rail-card,
-  .content-card {
-    padding: 18px;
-    border-radius: 20px;
+  .login-panel {
+    padding: 22px 18px;
+    border-radius: 22px;
   }
 
   .site-header {
-    flex-direction: column;
-    align-items: stretch;
+    padding: 12px 14px;
+    border-radius: 16px;
+    margin-bottom: 14px;
+  }
+
+  .rail-card,
+  .content-card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  h1 {
+    font-size: 1.4rem;
+  }
+
+  .feed-meta {
+    font-size: 0.82rem;
+    gap: 6px;
+  }
+
+  .post-image {
+    border-radius: 12px;
+    max-height: 300px;
+  }
+
+  .action-button {
+    padding: 7px 9px;
+    font-size: 0.82rem;
+    gap: 5px;
+  }
+
+  .action-button svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .post-actions {
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .comment-box textarea {
+    min-height: 70px;
+    font-size: 0.9rem;
+  }
+
+  .account-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 0.9rem;
+  }
+
+  .account-menu {
+    min-width: 180px;
+    top: 50px;
+  }
+
+  .auth-tabs {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .auth-tab {
+    flex: 1;
+    text-align: center;
+    padding: 9px 12px;
+  }
+
+  .demo-box {
+    font-size: 0.85rem;
+  }
+
+  .member-card {
+    padding: 12px;
+  }
+
+  .community-summary {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .community-summary-item {
+    padding: 10px 12px;
+  }
+
+  .notification-card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .settings-grid input,
+  .settings-grid select,
+  .login-form input,
+  .upload-grid input,
+  .upload-grid textarea,
+  .upload-grid select,
+  .subreddit-form input,
+  .subreddit-form textarea {
+    padding: 12px 14px;
+    font-size: 0.95rem;
+  }
+
+  .login-form button,
+  .post-button {
+    padding: 13px 16px;
+    font-size: 0.95rem;
   }
 }
