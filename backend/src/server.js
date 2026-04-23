@@ -1,4 +1,4 @@
-import process from "process";
+ import process from "process";
 import cors from "cors";
  import dotenv from "dotenv";
  import express from "express";
@@ -45,7 +45,6 @@ import cors from "cors";
  const demoPassword = process.env.DEMO_PASSWORD || "Password@123";
  const __filename = fileURLToPath(import.meta.url);
  const __dirname = path.dirname(__filename);
- const publicDir = process.env.FRONTEND_DIST || path.resolve(__dirname, "../../frontend/dist");
  const dataDir = path.resolve(__dirname, "../data");
  const postsFile = path.join(dataDir, "posts.json");
  const usersFile = path.join(dataDir, "users.json");
@@ -1018,40 +1017,43 @@ import cors from "cors";
    });
  });
  
- app.patch("/api/posts/:id", (req, res) => {
-   const postId = Number(req.params.id);
-   const { caption, subreddit, imageUrl, userEmail } = req.body ?? {};
-   const posts = readPosts();
-   const postIndex = findPostIndex(posts, postId);
- 
-   if (postIndex === -1) {
-     return res.status(404).json({
-       ok: false,
-       message: "Post not found."
-     });
-   }
- 
-   if (posts[postIndex].authorEmail !== userEmail) {
-     return res.status(403).json({
-       ok: false,
-       message: "Only the post owner can edit this post."
-     });
-   }
- 
-   posts[postIndex] = {
-     ...posts[postIndex],
-     caption: String(caption || posts[postIndex].caption).trim(),
-     subreddit: String(subreddit || posts[postIndex].subreddit).trim(),
-     imageUrl: imageUrl || posts[postIndex].imageUrl,
-     updatedAt: new Date().toISOString()
-   };
-   writePosts(posts);
- 
-   return res.json({
-     ok: true,
-     post: posts[postIndex]
-   });
- });
+  app.patch("/api/posts/:id", (req, res) => {
+  const postId = Number(req.params.id);
+  const { caption, subreddit, imageUrl, userEmail } = req.body ?? {};
+
+  const posts = readPosts();
+  const postIndex = posts.findIndex((item) => item.id === postId);
+
+  if (postIndex === -1) {
+    return res.status(404).json({
+      ok: false,
+      message: "Post not found."
+    });
+  }
+
+  if (posts[postIndex].authorEmail !== userEmail) {
+    return res.status(403).json({
+      ok: false,
+      message: "Only the post owner can edit this post."
+    });
+  }
+
+  posts[postIndex] = {
+    ...posts[postIndex],
+    caption: String(caption || posts[postIndex].caption).trim(),
+    subreddit: String(subreddit || posts[postIndex].subreddit).trim(),
+    imageUrl: imageUrl || posts[postIndex].imageUrl,
+    updatedAt: new Date().toISOString()
+  };
+
+  writePosts(posts);
+
+  return res.json({
+    ok: true,
+    post: posts[postIndex]
+  });
+});
+
  
  app.post("/api/posts/:id/react", (req, res) => {
    const postId = Number(req.params.id);
@@ -1360,9 +1362,6 @@ import cors from "cors";
    });
  });
  
- /* Serve frontend static files */
- app.use(express.static(publicDir));
- 
  /* Catch-all for unknown routes */
  app.use((req, res) => {
    if (req.path.startsWith("/api/")) {
@@ -1371,7 +1370,11 @@ import cors from "cors";
        message: "API route not found"
      });
    }
-   res.sendFile(path.join(publicDir, "index.html"));
+   // Frontend is served by Vercel — not here
+   return res.status(404).json({
+     ok: false,
+     message: "Not found. Frontend is hosted on Vercel."
+   });
  });
  
  /* ✅ FIXED SERVER START */
