@@ -1,4 +1,4 @@
- import process from "process";
+import process from "process";
 import cors from "cors";
  import dotenv from "dotenv";
  import express from "express";
@@ -11,7 +11,6 @@ import cors from "cors";
  import { v2 as cloudinary } from "cloudinary";
  import { createServer } from "http";
  import { Server } from "socket.io";
-import bcrypt from "bcrypt";
  
  dotenv.config();
  
@@ -281,7 +280,7 @@ import bcrypt from "bcrypt";
    res.json({ ok: true, service: "login-api" });
  });
  
- app.post("/api/login", async (req, res) => {
+ app.post("/api/login", (req, res) => {
    const { email, password } = req.body ?? {};
  
    if (!email || !password) {
@@ -302,21 +301,7 @@ import bcrypt from "bcrypt";
      });
    }
  
-   // Support both plain text (old) and hashed (new) passwords
-  const passwordMatch = user.password.startsWith("$2b$") || user.password.startsWith("$2a$")
-    ? await bcrypt.compare(password, user.password)
-    : user.password === password;
-
-  if (passwordMatch) {
-    // If password was plain text, upgrade to hashed
-    if (!user.password.startsWith("$2b$") && !user.password.startsWith("$2a$")) {
-      const users2 = readUsers();
-      const idx = users2.findIndex(u => u.email === email);
-      if (idx !== -1) {
-        users2[idx].password = await bcrypt.hash(password, 10);
-        writeUsers(users2);
-      }
-    }
+   if (user.password === password) {
      return res.json({
        ok: true,
        message: "Login successful.",
@@ -412,7 +397,7 @@ import bcrypt from "bcrypt";
    });
  });
  
- app.post("/api/signup", async (req, res) => {
+ app.post("/api/signup", (req, res) => {
    const { name, email, password, phone } = req.body ?? {};
    const normalizedPhone = normalizePhoneNumber(phone);
  
@@ -443,13 +428,12 @@ import bcrypt from "bcrypt";
      });
    }
  
-   const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = {
+   const newUser = {
      id: Date.now(),
      name,
      email,
      phone: normalizedPhone,
-     password: hashedPassword,
+     password,
      createdAt: new Date().toISOString()
    };
  
@@ -530,7 +514,7 @@ import bcrypt from "bcrypt";
      );
  });
  
- app.post("/api/reset-password-otp", async (req, res) => {
+ app.post("/api/reset-password-otp", (req, res) => {
    const { otp, newPassword } = req.body ?? {};
    const email = normalizeEmail(req.body?.email);
  
@@ -574,7 +558,7 @@ import bcrypt from "bcrypt";
      });
    }
  
-   user.password = await bcrypt.hash(newPassword, 10);
+   user.password = newPassword;
    writeUsers(users);
    otpStore.delete(resetKey);
  
@@ -646,7 +630,7 @@ import bcrypt from "bcrypt";
    });
  });
  
- app.post("/api/account/password", async (req, res) => {
+ app.post("/api/account/password", (req, res) => {
    const email = normalizeEmail(req.body?.email);
    const currentPassword = String(req.body?.currentPassword || "");
    const newPassword = String(req.body?.newPassword || "");
@@ -668,20 +652,16 @@ import bcrypt from "bcrypt";
      });
    }
  
-   const currentMatch = users[userIndex].password.startsWith("$2b$") || users[userIndex].password.startsWith("$2a$")
-    ? await bcrypt.compare(currentPassword, users[userIndex].password)
-    : users[userIndex].password === currentPassword;
-  if (!currentMatch) {
+   if (users[userIndex].password !== currentPassword) {
      return res.status(401).json({
        ok: false,
        message: "Current password is incorrect."
      });
    }
  
-   const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-  users[userIndex] = {
+   users[userIndex] = {
      ...users[userIndex],
-     password: hashedNewPassword
+     password: newPassword
    };
    writeUsers(users);
  
