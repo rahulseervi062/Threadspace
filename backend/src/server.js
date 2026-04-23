@@ -37,7 +37,7 @@ import cors from "cors";
  const server = createServer(app);
  const io = new Server(server, {
    cors: {
-     origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173"
+     origin: ["https://threadspace-frontend.vercel.app", "http://localhost:5173"]
    }
  });
  const port = Number(process.env.PORT || 4001);
@@ -248,11 +248,11 @@ import cors from "cors";
    res.send("Server is running 🚀");
  });
 
-  app.use(
-  cors({
-    origin: ["https://threadspace-frontend.vercel.app", "http://localhost:5173"]
-  })
-);
+ app.use(
+   cors({
+     origin: ["https://threadspace-frontend.vercel.app", "http://localhost:5173"]
+   })
+ );
  app.use(express.json({ limit: "50mb" }));
  app.use(express.urlencoded({ limit: "50mb", extended: true }));
  
