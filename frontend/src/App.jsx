@@ -1,9 +1,6 @@
-import { useEffect, useState } from "react";
+ import { useEffect, useState } from "react";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? "http://localhost:4001" : "");
-
-  const API_BASE = "https://threadspace-e2sj.onrender.com";
+const API_BASE = "https://threadspace-e2sj.onrender.com";
 
 
 async function readJsonResponse(response) {
