@@ -1,4 +1,4 @@
-import process from "process";
+ import process from "process";
 import cors from "cors";
  import dotenv from "dotenv";
  import express from "express";
@@ -1167,7 +1167,7 @@ import bcrypt from "bcrypt";
    const postId = Number(req.params.id);
    const { text, authorName, authorEmail } = req.body ?? {};
  
-   if (!text || !authorName || !authorEmail) {
+   if (!text || !authorName) {
      return res.status(400).json({
        ok: false,
        message: "Comment text and author are required."
@@ -1187,7 +1187,7 @@ import bcrypt from "bcrypt";
    const comment = {
      id: Date.now(),
      authorName,
-     authorEmail,
+     authorEmail: authorEmail || "",
      text: String(text).trim(),
      createdAt: new Date().toISOString()
    };
@@ -1276,7 +1276,7 @@ import bcrypt from "bcrypt";
    const reply = {
      id: Date.now(),
      authorName,
-     authorEmail,
+     authorEmail: authorEmail || "",
      text: String(text).trim(),
      createdAt: new Date().toISOString()
    };
