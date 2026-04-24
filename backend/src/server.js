@@ -61,6 +61,18 @@ import bcrypt from "bcrypt";
  const usersFile = path.join(dataDir, "users.json");
  const subredditsFile = path.join(dataDir, "subreddits.json");
  const messagesFile = path.join(dataDir, "messages.json");
+
+function readMessages() {
+  try {
+    return JSON.parse(fs.readFileSync(messagesFile, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeMessages(data) {
+  fs.writeFileSync(messagesFile, JSON.stringify(data, null, 2), "utf8");
+}
  const collectionsFile = path.join(dataDir, "collections.json");
  const demoPhone = process.env.DEMO_PHONE || "9999999999";
  
@@ -1453,7 +1465,105 @@ import bcrypt from "bcrypt";
    });
  });
 
- /* Catch-all for unknown routes */
+ 
+// ── MESSAGING ROUTES ──
+
+// Get all conversations for a user
+app.get("/api/messages", (req, res) => {
+  const { userEmail } = req.query;
+  if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required." });
+
+  const messages = readMessages();
+  const users = readUsers();
+
+  // Group messages into conversations
+  const convMap = {};
+  messages.forEach((msg) => {
+    if (msg.fromEmail !== userEmail && msg.toEmail !== userEmail) return;
+    const otherEmail = msg.fromEmail === userEmail ? msg.toEmail : msg.fromEmail;
+    if (!convMap[otherEmail]) {
+      const otherUser = users.find((u) => u.email === otherEmail);
+      convMap[otherEmail] = {
+        otherEmail,
+        otherName: otherUser?.name || otherEmail,
+        messages: [],
+        lastAt: msg.createdAt,
+        unread: 0
+      };
+    }
+    convMap[otherEmail].messages.push(msg);
+    if (msg.toEmail === userEmail && !msg.read) convMap[otherEmail].unread++;
+    if (msg.createdAt > convMap[otherEmail].lastAt) convMap[otherEmail].lastAt = msg.createdAt;
+  });
+
+  const conversations = Object.values(convMap).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  return res.json({ ok: true, conversations });
+});
+
+// Get messages between two users
+app.get("/api/messages/:otherEmail", (req, res) => {
+  const { userEmail } = req.query;
+  const otherEmail = decodeURIComponent(req.params.otherEmail);
+  if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required." });
+
+  const messages = readMessages();
+  // Mark messages as read
+  let changed = false;
+  const updated = messages.map((msg) => {
+    if (msg.fromEmail === otherEmail && msg.toEmail === userEmail && !msg.read) {
+      changed = true;
+      return { ...msg, read: true };
+    }
+    return msg;
+  });
+  if (changed) writeMessages(updated);
+
+  const thread = updated.filter(
+    (msg) =>
+      (msg.fromEmail === userEmail && msg.toEmail === otherEmail) ||
+      (msg.fromEmail === otherEmail && msg.toEmail === userEmail)
+  ).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  const users = readUsers();
+  const otherUser = users.find((u) => u.email === otherEmail);
+
+  return res.json({ ok: true, messages: thread, otherName: otherUser?.name || otherEmail });
+});
+
+// Send a message
+app.post("/api/messages", (req, res) => {
+  const { fromEmail, toEmail, text } = req.body ?? {};
+  if (!fromEmail || !toEmail || !text?.trim()) {
+    return res.status(400).json({ ok: false, message: "fromEmail, toEmail and text are required." });
+  }
+
+  const users = readUsers();
+  const sender = users.find((u) => u.email === fromEmail);
+  const receiver = users.find((u) => u.email === toEmail);
+
+  if (!sender || !receiver) {
+    return res.status(404).json({ ok: false, message: "User not found." });
+  }
+
+  const messages = readMessages();
+  const newMsg = {
+    id: Date.now(),
+    fromEmail,
+    fromName: sender.name,
+    toEmail,
+    toName: receiver.name,
+    text: String(text).trim(),
+    createdAt: new Date().toISOString(),
+    read: false
+  };
+
+  messages.push(newMsg);
+  writeMessages(messages);
+
+  return res.status(201).json({ ok: true, message: newMsg });
+});
+
+/* Catch-all for unknown routes */
  app.use((req, res) => {
    if (req.path.startsWith("/api/")) {
      return res.status(404).json({

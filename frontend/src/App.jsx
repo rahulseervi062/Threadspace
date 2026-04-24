@@ -63,12 +63,20 @@ export default function App() {
   const [postsLoading, setPostsLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [headerSearch, setHeaderSearch] = useState("");
+  const [conversations, setConversations] = useState([]);
+  const [activeConv, setActiveConv] = useState(null); // otherEmail
+  const [activeConvName, setActiveConvName] = useState("");
+  const [threadMessages, setThreadMessages] = useState([]);
+  const [msgDraft, setMsgDraft] = useState("");
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [profileUser, setProfileUser] = useState(null); // user being viewed
 
   useEffect(() => {
     if (!isAuthenticated) return;
     void loadSubreddits();
     void loadPosts();
     void searchMembers("");
+    void loadConversations();
   }, [isAuthenticated]);
 
   async function loadPosts() {
@@ -116,6 +124,49 @@ export default function App() {
       setMembersLoading(false);
     }
   }
+
+  async function loadConversations() {
+    try {
+      const res = await fetch(`${API_BASE}/api/messages?userEmail=${encodeURIComponent(accountEmail)}`);
+      const data = await readJsonResponse(res);
+      if (data.ok) setConversations(data.conversations || []);
+    } catch {}
+  }
+
+  async function openConversation(otherEmail, otherName) {
+    setActiveConv(otherEmail);
+    setActiveConvName(otherName);
+    setView("thread");
+    try {
+      const res = await fetch(`${API_BASE}/api/messages/${encodeURIComponent(otherEmail)}?userEmail=${encodeURIComponent(accountEmail)}`);
+      const data = await readJsonResponse(res);
+      if (data.ok) setThreadMessages(data.messages || []);
+    } catch {}
+  }
+
+  async function sendMessage() {
+    if (!msgDraft.trim() || !activeConv) return;
+    setMsgLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromEmail: accountEmail, toEmail: activeConv, text: msgDraft.trim() })
+      });
+      const data = await readJsonResponse(res);
+      if (data.ok) {
+        setThreadMessages((prev) => [...prev, data.message]);
+        setMsgDraft("");
+      }
+    } catch {}
+    setMsgLoading(false);
+  }
+
+  async function openUserProfile(userEmail, userName) {
+    setProfileUser({ email: userEmail, name: userName });
+    setView("profile");
+  }
+
 
   async function handleAuthSubmit(event) {
     event.preventDefault();
@@ -715,8 +766,8 @@ export default function App() {
             <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
           </div>
         </button>
-        <button className={view === "notifications" ? "bottom-nav-btn active" : "bottom-nav-btn"} type="button" onClick={() => setView("notifications")}>
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        <button className={view === "messages" || view === "thread" ? "bottom-nav-btn active" : "bottom-nav-btn"} type="button" onClick={() => { void loadConversations(); setView("messages"); }}>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
           Inbox
         </button>
         <button className={view === "settings" ? "bottom-nav-btn active" : "bottom-nav-btn"} type="button" onClick={() => setView("settings")}>
@@ -773,7 +824,7 @@ export default function App() {
                             <span className="community-name">r/{item.subreddit}</span>
                           </div>
                           <div className="post-meta-bottom">
-                            <span>Posted by u/{item.authorName}</span>
+                            <span style={{ cursor: "pointer", color: "var(--accent)" }} onClick={() => void openUserProfile(item.authorEmail, item.authorName)}>u/{item.authorName}</span>
                           </div>
                         </div>
                       </div>
@@ -953,6 +1004,140 @@ export default function App() {
             </div>
           ) : null}
 
+          {view === "messages" ? (
+            <div className="content-card">
+              <div className="section-head" style={{ marginBottom: 14 }}>
+                <h1>💬 Messages</h1>
+              </div>
+              {conversations.length === 0 ? (
+                <div className="search-empty">No conversations yet. Find someone and send a message!</div>
+              ) : (
+                <div className="member-list">
+                  {conversations.map((conv) => (
+                    <div
+                      key={conv.otherEmail}
+                      className="member-card"
+                      style={{ cursor: "pointer", borderLeft: conv.unread > 0 ? "3px solid var(--accent)" : "none" }}
+                      onClick={() => void openConversation(conv.otherEmail, conv.otherName)}
+                    >
+                      <div className="member-avatar">{conv.otherName?.charAt(0).toUpperCase()}</div>
+                      <div style={{ flex: 1 }}>
+                        <div className="member-name">{conv.otherName}</div>
+                        <div className="member-email">{conv.messages?.[conv.messages.length - 1]?.text?.slice(0, 40)}...</div>
+                      </div>
+                      {conv.unread > 0 ? (
+                        <div style={{ background: "var(--accent)", color: "#fff", borderRadius: "999px", padding: "2px 8px", fontSize: "0.75rem", fontWeight: 700 }}>{conv.unread}</div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {view === "thread" ? (
+            <div className="content-card" style={{ display: "flex", flexDirection: "column", minHeight: "80vh" }}>
+              <div className="section-head" style={{ marginBottom: 14 }}>
+                <button className="action-button" type="button" onClick={() => { void loadConversations(); setView("messages"); }}>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                  Back
+                </button>
+                <h1 style={{ fontSize: "1rem" }}>
+                  <div className="member-avatar" style={{ display: "inline-grid", width: 28, height: 28, fontSize: "0.8rem", marginRight: 8, verticalAlign: "middle" }}>{activeConvName?.charAt(0).toUpperCase()}</div>
+                  {activeConvName}
+                </h1>
+              </div>
+              {/* Messages thread */}
+              <div style={{ flex: 1, display: "grid", gap: 10, marginBottom: 14, maxHeight: "60vh", overflowY: "auto", padding: "4px 0" }}>
+                {threadMessages.length === 0 ? (
+                  <div className="search-empty">No messages yet. Say hi! 👋</div>
+                ) : (
+                  threadMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: msg.fromEmail === accountEmail ? "flex-end" : "flex-start"
+                      }}
+                    >
+                      <div style={{
+                        maxWidth: "75%",
+                        padding: "10px 14px",
+                        borderRadius: msg.fromEmail === accountEmail ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+                        background: msg.fromEmail === accountEmail ? "var(--accent)" : "var(--bg-3)",
+                        color: msg.fromEmail === accountEmail ? "#fff" : "var(--text)",
+                        fontSize: "0.92rem",
+                        lineHeight: 1.4
+                      }}>
+                        {msg.text}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 3, padding: "0 4px" }}>
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              {/* Message input */}
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                <textarea
+                  style={{
+                    flex: 1, padding: "10px 14px", borderRadius: 20,
+                    border: "1px solid var(--border)", background: "var(--bg-3)",
+                    color: "var(--text)", resize: "none", minHeight: 44, maxHeight: 120,
+                    fontSize: "0.92rem", outline: "none"
+                  }}
+                  placeholder={`Message ${activeConvName}...`}
+                  value={msgDraft}
+                  onChange={(e) => setMsgDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
+                />
+                <button
+                  type="button"
+                  onClick={() => void sendMessage()}
+                  disabled={msgLoading || !msgDraft.trim()}
+                  style={{
+                    width: 44, height: 44, border: 0, borderRadius: "999px",
+                    background: msgDraft.trim() ? "var(--accent)" : "var(--bg-3)",
+                    color: msgDraft.trim() ? "#fff" : "var(--muted)",
+                    display: "grid", placeItems: "center", cursor: "pointer",
+                    flexShrink: 0, transition: "background 0.15s"
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {view === "profile" && profileUser ? (
+            <div className="content-card">
+              <div className="section-head" style={{ marginBottom: 14 }}>
+                <button className="action-button" type="button" onClick={() => setView("feed")}>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                  Back
+                </button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "20px 0" }}>
+                <div className="member-avatar" style={{ width: 72, height: 72, fontSize: "2rem" }}>{profileUser.name?.charAt(0).toUpperCase()}</div>
+                <div style={{ fontSize: "1.2rem", fontWeight: 700 }}>{profileUser.name}</div>
+                <div style={{ color: "var(--muted)", fontSize: "0.88rem" }}>{profileUser.email}</div>
+                {profileUser.email !== accountEmail ? (
+                  <button
+                    className="post-button"
+                    type="button"
+                    onClick={() => void openConversation(profileUser.email, profileUser.name)}
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+                    Send Message
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {view === "search" ? (
             <div className="content-card">
               <div className="section-head" style={{ padding: 0, marginBottom: 14 }}>
@@ -1017,12 +1202,13 @@ export default function App() {
             ) : members.length ? (
               <div className="member-list">
                 {members.map((member) => (
-                  <div className="member-card" key={member.id}>
+                  <div className="member-card" key={member.id} style={{ cursor: "pointer" }} onClick={() => void openUserProfile(member.email, member.name)}>
                     <div className="member-avatar">{member.name.charAt(0)}</div>
-                    <div>
+                    <div style={{ flex: 1 }}>
                       <div className="member-name">{member.name}</div>
                       <div className="member-email">{member.email}</div>
                     </div>
+                    <div style={{ color: "var(--accent)", fontSize: "0.8rem", fontWeight: 700 }}>Message →</div>
                   </div>
                 ))}
               </div>
