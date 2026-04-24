@@ -34,25 +34,53 @@ import mongoose from "mongoose";
  
  const otpStore = new Map();
  
- const app = express();
- const server = createServer(app);
- // Track connected users
- const onlineUsers = new Map(); // email -> socketId
+const app = express();
+const server = createServer(app);
+// Track connected users
+const onlineUsers = new Map(); // email -> socketId
+const configuredFrontendOrigins = [
+  process.env.FRONTEND_URL,
+  ...(process.env.FRONTEND_URLS || "").split(",")
+]
+  .map((value) => String(value || "").trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+
+  const normalizedOrigin = String(origin).trim().replace(/\/$/, "");
+  const defaultAllowedOrigins = new Set([
+    "https://threadspace-frontend.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:4173"
+  ]);
+
+  if (defaultAllowedOrigins.has(normalizedOrigin)) return true;
+  if (configuredFrontendOrigins.includes(normalizedOrigin)) return true;
+
+  try {
+    const parsed = new URL(normalizedOrigin);
+    if (parsed.hostname.endsWith(".vercel.app")) return true;
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error("Not allowed by CORS"));
+  }
+};
 
 const io = new Server(server, {
-   cors: {
-     origin: function(origin, callback) {
-    const allowed = [
-      'https://threadspace-frontend.vercel.app',
-      'http://localhost:5173'
-    ];
-    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  }
-   }
+  cors: corsOptions
  });
  // Socket.io connection handler
  io.on("connection", (socket) => {
@@ -309,20 +337,8 @@ function uploadToCloudinary(file) {
    res.send("Server is running 🚀");
  });
 
- app.use(
-   cors({
-     origin: function(origin, callback) {
-    const allowed = [
-      'https://threadspace-frontend.vercel.app',
-      'http://localhost:5173'
-    ];
-    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  }
-   })
+app.use(
+  cors(corsOptions)
  );
  app.use(express.json({ limit: "50mb" }));
  app.use(express.urlencoded({ limit: "50mb", extended: true }));
