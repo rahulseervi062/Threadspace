@@ -428,10 +428,10 @@ function writeMessages(data) {
    const { name, email, password, phone } = req.body ?? {};
    const normalizedPhone = normalizePhoneNumber(phone);
  
-   if (!name || !email || !password || !normalizedPhone) {
+   if (!name || !email || !password) {
      return res.status(400).json({
        ok: false,
-       message: "Name, email, mobile number and password are required."
+       message: "Name, email and password are required."
      });
    }
  
@@ -448,7 +448,7 @@ function writeMessages(data) {
      });
    }
  
-   if (existingPhone) {
+   if (normalizedPhone && existingPhone) {
      return res.status(409).json({
        ok: false,
        message: "An account with this mobile number already exists."
