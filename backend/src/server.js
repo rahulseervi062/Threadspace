@@ -1,17 +1,17 @@
  import process from "process";
 import cors from "cors";
- import dotenv from "dotenv";
- import express from "express";
- import fs from "fs";
- import nodemailer from "nodemailer";
- import otpGenerator from "otp-generator";
- import path from "path";
- import { fileURLToPath } from "url";
- import multer from "multer";
- import { v2 as cloudinary } from "cloudinary";
- import { createServer } from "http";
- import { Server } from "socket.io";
+import dotenv from "dotenv";
+import express from "express";
+import nodemailer from "nodemailer";
+import otpGenerator from "otp-generator";
+import { fileURLToPath } from "url";
+import path from "path";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
+import { createServer } from "http";
+import { Server } from "socket.io";
 import bcrypt from "bcrypt";
+import mongoose from "mongoose";
  
  dotenv.config();
  
@@ -82,27 +82,146 @@ import bcrypt from "bcrypt";
  const port = Number(process.env.PORT || 4001);
  const demoEmail = process.env.DEMO_EMAIL || "demo@site.com";
  const demoPassword = process.env.DEMO_PASSWORD || "Password@123";
- const __filename = fileURLToPath(import.meta.url);
- const __dirname = path.dirname(__filename);
- const dataDir = path.resolve(__dirname, "../data");
- const postsFile = path.join(dataDir, "posts.json");
- const usersFile = path.join(dataDir, "users.json");
- const subredditsFile = path.join(dataDir, "subreddits.json");
- const messagesFile = path.join(dataDir, "messages.json");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const demoPhone = process.env.DEMO_PHONE || "9999999999";
 
-function readMessages() {
-  try {
-    return JSON.parse(fs.readFileSync(messagesFile, "utf8"));
-  } catch {
-    return [];
+// MongoDB connection
+mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/threadspace")
+  .then(() => console.log("✅ Connected to MongoDB"))
+  .catch((err) => console.error("❌ MongoDB connection error:", err));
+
+// MongoDB Schemas
+const userSchema = new mongoose.Schema({
+  id: Number,
+  name: String,
+  email: { type: String, unique: true },
+  phone: String,
+  password: String,
+  avatar: String,
+  createdAt: String,
+  following: [Number],
+  followers: [Number],
+  followingSubreddits: [String],
+  karma: { type: Number, default: 0 }
+});
+
+const postSchema = new mongoose.Schema({
+  id: Number,
+  caption: String,
+  imageUrl: String,
+  subreddit: String,
+  authorName: String,
+  authorEmail: String,
+  likes: { type: Number, default: 0 },
+  dislikes: { type: Number, default: 0 },
+  likedBy: [String],
+  dislikedBy: [String],
+  savedBy: [String],
+  comments: { type: Array, default: [] },
+  createdAt: String,
+  updatedAt: String
+});
+
+const subredditSchema = new mongoose.Schema({
+  id: Number,
+  name: { type: String, unique: true },
+  title: String,
+  description: String,
+  rules: String,
+  moderators: [String]
+});
+
+const messageSchema = new mongoose.Schema({
+  id: Number,
+  fromEmail: String,
+  fromName: String,
+  toEmail: String,
+  toName: String,
+  text: String,
+  mediaUrl: String,
+  mediaType: String,
+  createdAt: String,
+  read: { type: Boolean, default: false }
+});
+
+const User = mongoose.model("User", userSchema);
+const Post = mongoose.model("Post", postSchema);
+const Subreddit = mongoose.model("Subreddit", subredditSchema);
+const Message = mongoose.model("Message", messageSchema);
+
+// Helper functions (async, MongoDB-based)
+async function readUsers() {
+  return await User.find({}).lean();
+}
+
+async function writeUsers(users) {
+  // Not needed with MongoDB - updates done directly
+}
+
+async function readPosts() {
+  const posts = await Post.find({}).sort({ createdAt: -1 }).lean();
+  return posts.map((post) => ({
+    likes: 0,
+    dislikes: 0,
+    comments: [],
+    likedBy: [],
+    dislikedBy: [],
+    savedBy: [],
+    ...post
+  }));
+}
+
+async function writePosts(posts) {
+  // Not needed with MongoDB
+}
+
+async function readSubreddits() {
+  return await Subreddit.find({}).lean();
+}
+
+async function writeSubreddits(subreddits) {
+  // Not needed with MongoDB
+}
+
+async function readMessages() {
+  return await Message.find({}).sort({ createdAt: 1 }).lean();
+}
+
+async function writeMessages(messages) {
+  // Not needed with MongoDB
+}
+
+// Seed default data if empty
+async function seedData() {
+  const userCount = await User.countDocuments();
+  if (userCount === 0) {
+    await User.create({
+      id: 1,
+      name: "Demo User",
+      email: demoEmail,
+      phone: demoPhone,
+      password: demoPassword,
+      createdAt: new Date().toISOString(),
+      following: [],
+      followers: [],
+      karma: 0
+    });
+    console.log("✅ Demo user seeded");
+  }
+
+  const subCount = await Subreddit.countDocuments();
+  if (subCount === 0) {
+    await Subreddit.insertMany([
+      { id: 1, name: "announcements", title: "Announcements", description: "Official updates and highlights from the community." },
+      { id: 2, name: "photography", title: "Photography", description: "Share your favorite moments and visual stories." },
+      { id: 3, name: "campuslife", title: "Campus Life", description: "Talk about events, student life, and day-to-day updates." }
+    ]);
+    console.log("✅ Default subreddits seeded");
   }
 }
 
-function writeMessages(data) {
-  fs.writeFileSync(messagesFile, JSON.stringify(data, null, 2), "utf8");
-}
- const collectionsFile = path.join(dataDir, "collections.json");
- const demoPhone = process.env.DEMO_PHONE || "9999999999";
+mongoose.connection.once("open", seedData);
  
  // Configure Cloudinary
  try {
@@ -123,161 +242,9 @@ function writeMessages(data) {
  const storage = multer.memoryStorage();
  const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
  
- if (!fs.existsSync(dataDir)) {
-   fs.mkdirSync(dataDir, { recursive: true });
- }
- 
- if (!fs.existsSync(postsFile)) {
-   fs.writeFileSync(postsFile, "[]", "utf8");
- }
- 
- if (!fs.existsSync(messagesFile)) {
-   fs.writeFileSync(messagesFile, "[]", "utf8");
- }
- 
- if (!fs.existsSync(collectionsFile)) {
-   fs.writeFileSync(collectionsFile, "[]", "utf8");
- }
- 
- if (!fs.existsSync(usersFile)) {
-   fs.writeFileSync(
-     usersFile,
-     JSON.stringify(
-       [
-         {
-           id: 1,
-           name: "Demo User",
-           email: demoEmail,
-           phone: demoPhone,
-           password: demoPassword,
-           createdAt: new Date().toISOString(),
-           following: [],
-           followers: [20000000000],
-           karma: 0
-         }
-       ],
-       null,
-       2
-     ),
-     "utf8"
-   );
- }
- 
- if (!fs.existsSync(subredditsFile)) {
-   fs.writeFileSync(
-     subredditsFile,
-     JSON.stringify(
-       [
-         {
-           id: 1,
-           name: "announcements",
-           title: "Announcements",
-           description: "Official updates and highlights from the community."
-         },
-         {
-           id: 2,
-           name: "photography",
-           title: "Photography",
-           description: "Share your favorite moments and visual stories."
-         },
-         {
-           id: 3,
-           name: "campuslife",
-           title: "Campus Life",
-           description: "Talk about events, student life, and day-to-day updates."
-         }
-       ],
-       null,
-       2
-     ),
-     "utf8"
-   );
- }
- 
- function readPosts() {
-   try {
-     const raw = fs.readFileSync(postsFile, "utf8");
-     const posts = JSON.parse(raw);
-     return posts.map((post) => ({
-       likes: 0,
-       dislikes: 0,
-       comments: [],
-       likedBy: [],
-       dislikedBy: [],
-       savedBy: [],
-       ...post
-     })).map((post) => ({
-       ...post,
-       comments: (post.comments || []).map((comment) => ({
-         replies: [],
-         ...comment,
-         replies: (comment.replies || []).map((reply) => ({
-           ...reply
-         }))
-       }))
-     }));
-   } catch {
-     return [];
-   }
- }
- 
- function writePosts(posts) {
-   fs.writeFileSync(postsFile, JSON.stringify(posts, null, 2), "utf8");
- }
- 
- function readUsers() {
-   try {
-     const raw = fs.readFileSync(usersFile, "utf8");
-     const users = JSON.parse(raw);
-     let changed = false;
- 
-     const normalizedUsers = users.map((user) => {
-       if (!user.phone && user.email === demoEmail) {
-         changed = true;
-         return {
-           ...user,
-           phone: demoPhone
-         };
-       }
-       // Add new fields if missing
-       if (!user.following) {
-         changed = true;
-         return {
-           ...user,
-           following: [],
-           followers: [],
-           karma: 0
-         };
-       }
-       return user;
-     });
- 
-     if (changed) {
-       writeUsers(normalizedUsers);
-     }
- 
-     return normalizedUsers;
-   } catch {
-     return [];
-   }
- }
- 
- function writeUsers(users) {
-   fs.writeFileSync(usersFile, JSON.stringify(users, null, 2), "utf8");
- }
- 
- function readSubreddits() {
-   try {
-     const raw = fs.readFileSync(subredditsFile, "utf8");
-     return JSON.parse(raw);
-   } catch {
-     return [];
-   }
- }
- 
- function writeSubreddits(subreddits) {
-   fs.writeFileSync(subredditsFile, JSON.stringify(subreddits, null, 2), "utf8");
- }
+
+ // Data is now stored in MongoDB - seeded via seedData()
+
  
  function normalizePhoneNumber(value) {
    return String(value || "").replace(/\D/g, "");
@@ -295,7 +262,7 @@ function writeMessages(data) {
    return (post.comments || []).findIndex((item) => item.id === commentId);
  }
  
- app.get("/", (req, res) => {
+ app.get("/", async (req, res) => {
    res.send("Server is running 🚀");
  });
 
@@ -331,7 +298,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const user = users.find((item) => item.email === email);
  
    if (!user) {
@@ -403,7 +370,7 @@ function writeMessages(data) {
    });
  });
  
- app.post("/api/verify-otp", (req, res) => {
+ app.post("/api/verify-otp", async (req, res) => {
    const { email, otp } = req.body ?? {};
  
    if (!email || !otp) {
@@ -437,7 +404,7 @@ function writeMessages(data) {
    }
  
    // OTP valid, login the user
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const user = users.find((item) => item.email === email);
    otpStore.delete(email);
  
@@ -463,7 +430,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const existingUser = users.find((item) => item.email === email);
    const existingPhone = users.find(
      (item) => normalizePhoneNumber(item.phone) === normalizedPhone
@@ -490,11 +457,13 @@ function writeMessages(data) {
      email,
      phone: normalizedPhone,
      password: hashedPassword,
-     createdAt: new Date().toISOString()
+     createdAt: new Date().toISOString(),
+     following: [],
+     followers: [],
+     karma: 0
    };
- 
-   users.push(newUser);
-   writeUsers(users);
+
+   await User.create(newUser);
  
    return res.status(201).json({
      ok: true,
@@ -507,7 +476,7 @@ function writeMessages(data) {
    });
  });
  
- app.post("/api/forgot-password", (req, res) => {
+ app.post("/api/forgot-password", async (req, res) => {
    const email = normalizeEmail(req.body?.email);
  
    if (!email) {
@@ -517,7 +486,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const user = users.find((item) => normalizeEmail(item.email) === email);
  
    if (!user) {
@@ -605,7 +574,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const user = users.find((item) => normalizeEmail(item.email) === email);
    if (!user) {
      return res.status(404).json({
@@ -615,7 +584,7 @@ function writeMessages(data) {
    }
  
    user.password = await bcrypt.hash(newPassword, 10);
-   writeUsers(users);
+   for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
    otpStore.delete(resetKey);
  
    return res.json({
@@ -624,9 +593,9 @@ function writeMessages(data) {
    });
  });
  
- app.get("/api/users", (req, res) => {
+ app.get("/api/users", async (req, res) => {
    const query = String(req.query.q || "").trim().toLowerCase();
-   const users = readUsers().map((user) => ({
+   const users = (await User.find({}).lean()).map((user) => ({
      id: user.id,
      name: user.name,
      email: user.email,
@@ -647,7 +616,7 @@ function writeMessages(data) {
    });
  });
  
- app.patch("/api/account", (req, res) => {
+ app.patch("/api/account", async (req, res) => {
    const email = normalizeEmail(req.body?.email);
    const name = String(req.body?.name || "").trim();
    const phone = normalizePhoneNumber(req.body?.phone);
@@ -659,7 +628,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const userIndex = users.findIndex((item) => normalizeEmail(item.email) === email);
  
    if (userIndex === -1) {
@@ -669,12 +638,8 @@ function writeMessages(data) {
      });
    }
  
-   users[userIndex] = {
-     ...users[userIndex],
-     name,
-     phone
-   };
-   writeUsers(users);
+   await User.findOneAndUpdate({ email }, { name, phone });
+  users[userIndex] = { ...users[userIndex], name, phone };
  
    return res.json({
      ok: true,
@@ -698,7 +663,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const userIndex = users.findIndex((item) => normalizeEmail(item.email) === email);
  
    if (userIndex === -1) {
@@ -723,7 +688,7 @@ function writeMessages(data) {
      ...users[userIndex],
      password: hashedNewPassword
    };
-   writeUsers(users);
+   for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
  
    return res.json({
      ok: true,
@@ -732,7 +697,7 @@ function writeMessages(data) {
  });
  
  // Following endpoints
- app.post("/api/users/:id/follow", (req, res) => {
+ app.post("/api/users/:id/follow", async (req, res) => {
    const targetUserId = Number(req.params.id);
    const { userEmail } = req.body ?? {};
  
@@ -743,7 +708,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const currentUserIndex = users.findIndex((user) => user.email === userEmail);
    const targetUserIndex = users.findIndex((user) => user.id === targetUserId);
  
@@ -774,7 +739,7 @@ function writeMessages(data) {
    currentUser.following.push(targetUserId);
    targetUser.followers.push(currentUser.id);
  
-   writeUsers(users);
+   for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
  
    return res.json({
      ok: true,
@@ -782,7 +747,7 @@ function writeMessages(data) {
    });
  });
  
- app.delete("/api/users/:id/follow", (req, res) => {
+ app.delete("/api/users/:id/follow", async (req, res) => {
    const targetUserId = Number(req.params.id);
    const userEmail = String(req.query.userEmail || "");
  
@@ -793,7 +758,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const currentUserIndex = users.findIndex((user) => user.email === userEmail);
    const targetUserIndex = users.findIndex((user) => user.id === targetUserId);
  
@@ -810,7 +775,7 @@ function writeMessages(data) {
    currentUser.following = currentUser.following.filter(id => id !== targetUserId);
    targetUser.followers = targetUser.followers.filter(id => id !== currentUser.id);
  
-   writeUsers(users);
+   for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
  
    return res.json({
      ok: true,
@@ -819,7 +784,7 @@ function writeMessages(data) {
  });
  
  // Follow subreddit
- app.post("/api/subreddits/:name/follow", (req, res) => {
+ app.post("/api/subreddits/:name/follow", async (req, res) => {
    const subredditName = req.params.name;
    const { userEmail } = req.body ?? {};
  
@@ -830,7 +795,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const userIndex = users.findIndex((user) => user.email === userEmail);
  
    if (userIndex === -1) {
@@ -853,7 +818,7 @@ function writeMessages(data) {
    }
  
    user.followingSubreddits.push(subredditName);
-   writeUsers(users);
+   for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
  
    return res.json({
      ok: true,
@@ -861,7 +826,7 @@ function writeMessages(data) {
    });
  });
  
- app.delete("/api/subreddits/:name/follow", (req, res) => {
+ app.delete("/api/subreddits/:name/follow", async (req, res) => {
    const subredditName = req.params.name;
    const userEmail = String(req.query.userEmail || "");
  
@@ -872,7 +837,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const userIndex = users.findIndex((user) => user.email === userEmail);
  
    if (userIndex === -1) {
@@ -887,7 +852,7 @@ function writeMessages(data) {
      user.followingSubreddits = user.followingSubreddits.filter(name => name !== subredditName);
    }
  
-   writeUsers(users);
+   for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
  
    return res.json({
      ok: true,
@@ -902,7 +867,7 @@ function writeMessages(data) {
    });
  });
  
- app.post("/api/subreddits", (req, res) => {
+ app.post("/api/subreddits", async (req, res) => {
    const { name, title, description, rules } = req.body ?? {};
  
    if (!name || !title) {
@@ -913,7 +878,7 @@ function writeMessages(data) {
    }
  
    const normalizedName = String(name).trim().toLowerCase().replace(/\s+/g, "");
-   const subreddits = readSubreddits();
+   const subreddits = await Subreddit.find({}).lean();
    const exists = subreddits.find((item) => item.name === normalizedName);
  
    if (exists) {
@@ -932,8 +897,7 @@ function writeMessages(data) {
      moderators: [req.body.creatorEmail || "demo@site.com"] // Add creator as mod
    };
  
-   subreddits.unshift(subreddit);
-   writeSubreddits(subreddits);
+   await Subreddit.create(subreddit);
  
    return res.status(201).json({
      ok: true,
@@ -941,7 +905,7 @@ function writeMessages(data) {
    });
  });
  
- app.get("/api/search", (req, res) => {
+ app.get("/api/search", async (req, res) => {
    const query = String(req.query.q || "").trim().toLowerCase();
    const type = String(req.query.type || "all").toLowerCase();
  
@@ -955,7 +919,7 @@ function writeMessages(data) {
    const results = { posts: [], subreddits: [], users: [] };
  
    if (type === "all" || type === "posts") {
-     const posts = readPosts();
+     const posts = await readPosts();
      results.posts = posts.filter((post) =>
        post.caption.toLowerCase().includes(query) ||
        post.subreddit.toLowerCase().includes(query) ||
@@ -964,7 +928,7 @@ function writeMessages(data) {
    }
  
    if (type === "all" || type === "subreddits") {
-     const subreddits = readSubreddits();
+     const subreddits = await Subreddit.find({}).lean();
      results.subreddits = subreddits.filter((subreddit) =>
        subreddit.name.toLowerCase().includes(query) ||
        subreddit.title.toLowerCase().includes(query) ||
@@ -973,7 +937,7 @@ function writeMessages(data) {
    }
  
    if (type === "all" || type === "users") {
-     const users = readUsers();
+     const users = await User.find({}).lean();
      results.users = users.filter((user) =>
        user.name.toLowerCase().includes(query) ||
        user.email.toLowerCase().includes(query)
@@ -992,7 +956,7 @@ function writeMessages(data) {
  });
  
  app.get("/api/posts", (_req, res) => {
-   const posts = readPosts();
+   const posts = await readPosts();
    res.json({
      ok: true,
      posts
@@ -1004,7 +968,7 @@ function writeMessages(data) {
  
  // Trending posts
  app.get("/api/posts/trending", (_req, res) => {
-   const posts = readPosts();
+   const posts = await readPosts();
    const now = Date.now();
    const oneDayAgo = now - (24 * 60 * 60 * 1000);
  
@@ -1024,7 +988,7 @@ function writeMessages(data) {
  });
  
  // Recommended posts
- app.get("/api/posts/recommended", (req, res) => {
+ app.get("/api/posts/recommended", async (req, res) => {
    const userEmail = String(req.query.userEmail || "");
    if (!userEmail) {
      return res.status(400).json({
@@ -1033,7 +997,7 @@ function writeMessages(data) {
      });
    }
  
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const user = users.find(u => u.email === userEmail);
    if (!user) {
      return res.status(404).json({
@@ -1042,7 +1006,7 @@ function writeMessages(data) {
      });
    }
  
-   const posts = readPosts();
+   const posts = await readPosts();
    const followedSubreddits = user.followingSubreddits || [];
    const followedUsers = user.following || [];
  
@@ -1061,7 +1025,7 @@ function writeMessages(data) {
    });
  });
  
- app.post("/api/posts", (req, res) => {
+ app.post("/api/posts", async (req, res) => {
    const { caption, imageUrl, subreddit, authorName, authorEmail } = req.body ?? {};
  
    if (!caption || !imageUrl || !subreddit || !authorName || !authorEmail) {
@@ -1071,7 +1035,7 @@ function writeMessages(data) {
      });
    }
  
-   const posts = readPosts();
+   const posts = await readPosts();
    const newPost = {
      id: Date.now(),
      caption,
@@ -1088,8 +1052,7 @@ function writeMessages(data) {
      createdAt: new Date().toISOString()
    };
  
-   posts.unshift(newPost);
-   writePosts(posts);
+   await Post.create(newPost);
  
    return res.status(201).json({
      ok: true,
@@ -1097,11 +1060,11 @@ function writeMessages(data) {
    });
  });
  
-  app.patch("/api/posts/:id", (req, res) => {
+  app.patch("/api/posts/:id", async (req, res) => {
   const postId = Number(req.params.id);
   const { caption, subreddit, imageUrl, userEmail } = req.body ?? {};
 
-  const posts = readPosts();
+  const posts = await readPosts();
   const postIndex = posts.findIndex((item) => item.id === postId);
 
   if (postIndex === -1) {
@@ -1126,7 +1089,7 @@ function writeMessages(data) {
     updatedAt: new Date().toISOString()
   };
 
-  writePosts(posts);
+  await Post.deleteMany({}); await Post.insertMany(posts);
 
   return res.json({
     ok: true,
@@ -1135,7 +1098,7 @@ function writeMessages(data) {
 });
 
  
- app.post("/api/posts/:id/react", (req, res) => {
+ app.post("/api/posts/:id/react", async (req, res) => {
    const postId = Number(req.params.id);
    const { reaction, userEmail } = req.body ?? {};
  
@@ -1146,7 +1109,7 @@ function writeMessages(data) {
      });
    }
  
-   const posts = readPosts();
+   const posts = await readPosts();
    const postIndex = posts.findIndex((item) => item.id === postId);
  
    if (postIndex === -1) {
@@ -1178,7 +1141,7 @@ function writeMessages(data) {
    post.dislikes = post.dislikedBy.length;
  
    // Update karma for post author
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const authorIndex = users.findIndex(user => user.email === post.authorEmail);
    if (authorIndex !== -1) {
      // Reset karma calculation
@@ -1189,10 +1152,10 @@ function writeMessages(data) {
          users[authorIndex].karma += (p.comments?.length || 0) * 2; // Comments give karma too
        }
      });
-     writeUsers(users);
+     for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
    }
  
-   writePosts(posts);
+   await Post.deleteMany({}); await Post.insertMany(posts);
  
    // Emit socket event for real-time updates
    io.emit('postReaction', { postId, post, userEmail, reaction });
@@ -1203,7 +1166,7 @@ function writeMessages(data) {
    });
  });
  
- app.post("/api/posts/:id/comments", (req, res) => {
+ app.post("/api/posts/:id/comments", async (req, res) => {
    const postId = Number(req.params.id);
    const { text, authorName, authorEmail } = req.body ?? {};
  
@@ -1214,7 +1177,7 @@ function writeMessages(data) {
      });
    }
  
-   const posts = readPosts();
+   const posts = await readPosts();
    const postIndex = posts.findIndex((item) => item.id === postId);
  
    if (postIndex === -1) {
@@ -1233,7 +1196,7 @@ function writeMessages(data) {
    };
  
    posts[postIndex].comments.unshift(comment);
-   writePosts(posts);
+   await Post.deleteMany({}); await Post.insertMany(posts);
  
    return res.status(201).json({
      ok: true,
@@ -1241,11 +1204,11 @@ function writeMessages(data) {
    });
  });
  
- app.patch("/api/posts/:postId/comments/:commentId", (req, res) => {
+ app.patch("/api/posts/:postId/comments/:commentId", async (req, res) => {
    const postId = Number(req.params.postId);
    const commentId = Number(req.params.commentId);
    const { text, userEmail } = req.body ?? {};
-   const posts = readPosts();
+   const posts = await readPosts();
    const postIndex = findPostIndex(posts, postId);
  
    if (postIndex === -1) {
@@ -1276,7 +1239,7 @@ function writeMessages(data) {
      text: String(text || "").trim(),
      updatedAt: new Date().toISOString()
    };
-   writePosts(posts);
+   await Post.deleteMany({}); await Post.insertMany(posts);
  
    return res.json({
      ok: true,
@@ -1284,11 +1247,11 @@ function writeMessages(data) {
    });
  });
  
- app.post("/api/posts/:postId/comments/:commentId/replies", (req, res) => {
+ app.post("/api/posts/:postId/comments/:commentId/replies", async (req, res) => {
    const postId = Number(req.params.postId);
    const commentId = Number(req.params.commentId);
    const { text, authorName, authorEmail } = req.body ?? {};
-   const posts = readPosts();
+   const posts = await readPosts();
    const postIndex = findPostIndex(posts, postId);
  
    if (postIndex === -1) {
@@ -1323,7 +1286,7 @@ function writeMessages(data) {
  
    posts[postIndex].comments[commentIndex].replies = posts[postIndex].comments[commentIndex].replies || [];
    posts[postIndex].comments[commentIndex].replies.unshift(reply);
-   writePosts(posts);
+   await Post.deleteMany({}); await Post.insertMany(posts);
  
    return res.status(201).json({
      ok: true,
@@ -1335,7 +1298,7 @@ function writeMessages(data) {
    const postId = Number(req.params.postId);
    const commentId = Number(req.params.commentId);
    const userEmail = normalizeEmail(req.query.userEmail || req.body?.userEmail);
-   const posts = readPosts();
+   const posts = await readPosts();
    const postIndex = posts.findIndex((item) => item.id === postId);
  
    if (postIndex === -1) {
@@ -1364,7 +1327,7 @@ function writeMessages(data) {
    }
  
    post.comments.splice(commentIndex, 1);
-   writePosts(posts);
+   await Post.deleteMany({}); await Post.insertMany(posts);
  
    return res.json({
      ok: true,
@@ -1375,7 +1338,7 @@ function writeMessages(data) {
  app.delete("/api/posts/:postId/comments/:commentId", deleteCommentHandler);
  app.post("/api/posts/:postId/comments/:commentId/delete", deleteCommentHandler);
  
- app.post("/api/posts/:id/save", (req, res) => {
+ app.post("/api/posts/:id/save", async (req, res) => {
    const postId = Number(req.params.id);
    const { userEmail } = req.body ?? {};
  
@@ -1386,7 +1349,7 @@ function writeMessages(data) {
      });
    }
  
-   const posts = readPosts();
+   const posts = await readPosts();
    const postIndex = posts.findIndex((item) => item.id === postId);
  
    if (postIndex === -1) {
@@ -1405,7 +1368,7 @@ function writeMessages(data) {
      post.savedBy = [...post.savedBy, userEmail];
    }
  
-   writePosts(posts);
+   await Post.deleteMany({}); await Post.insertMany(posts);
  
    return res.json({
      ok: true,
@@ -1413,10 +1376,10 @@ function writeMessages(data) {
    });
  });
  
- app.delete("/api/posts/:id", (req, res) => {
+ app.delete("/api/posts/:id", async (req, res) => {
    const postId = Number(req.params.id);
    const userEmail = String(req.query.userEmail || "");
-   const posts = readPosts();
+   const posts = await readPosts();
    const postIndex = posts.findIndex((item) => item.id === postId);
  
    if (postIndex === -1) {
@@ -1434,7 +1397,7 @@ function writeMessages(data) {
    }
  
    const [deletedPost] = posts.splice(postIndex, 1);
-   writePosts(posts);
+   await Post.deleteMany({}); await Post.insertMany(posts);
  
    return res.json({
      ok: true,
@@ -1456,25 +1419,24 @@ function writeMessages(data) {
      return res.status(400).json({ ok: false, message: "Image too large. Max 2MB." });
    }
 
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const userIndex = users.findIndex((u) => normalizeEmail(u.email) === email);
 
    if (userIndex === -1) {
      return res.status(404).json({ ok: false, message: "User not found." });
    }
 
-   users[userIndex].avatar = avatar;
-   writeUsers(users);
+   await User.findOneAndUpdate({ email }, { avatar });
 
    return res.json({ ok: true, avatar });
  });
 
  // Get user profile including avatar
- app.get("/api/account", (req, res) => {
+ app.get("/api/account", async (req, res) => {
    const email = normalizeEmail(req.query.email);
    if (!email) return res.status(400).json({ ok: false, message: "Email required." });
 
-   const users = readUsers();
+   const users = await User.find({}).lean();
    const user = users.find((u) => normalizeEmail(u.email) === email);
    if (!user) return res.status(404).json({ ok: false, message: "User not found." });
 
@@ -1497,12 +1459,12 @@ function writeMessages(data) {
 // ── MESSAGING ROUTES ──
 
 // Get all conversations for a user
-app.get("/api/messages", (req, res) => {
+app.get("/api/messages", async (req, res) => {
   const { userEmail } = req.query;
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required." });
 
-  const messages = readMessages();
-  const users = readUsers();
+  const messages = await Message.find({}).sort({ createdAt: 1 }).lean();
+  const users = await User.find({}).lean();
 
   // Group messages into conversations
   const convMap = {};
@@ -1529,12 +1491,12 @@ app.get("/api/messages", (req, res) => {
 });
 
 // Get messages between two users
-app.get("/api/messages/:otherEmail", (req, res) => {
+app.get("/api/messages/:otherEmail", async (req, res) => {
   const { userEmail } = req.query;
   const otherEmail = decodeURIComponent(req.params.otherEmail);
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required." });
 
-  const messages = readMessages();
+  const messages = await Message.find({}).sort({ createdAt: 1 }).lean();
   // Mark messages as read
   let changed = false;
   const updated = messages.map((msg) => {
@@ -1552,20 +1514,20 @@ app.get("/api/messages/:otherEmail", (req, res) => {
       (msg.fromEmail === otherEmail && msg.toEmail === userEmail)
   ).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
-  const users = readUsers();
+  const users = await User.find({}).lean();
   const otherUser = users.find((u) => u.email === otherEmail);
 
   return res.json({ ok: true, messages: thread, otherName: otherUser?.name || otherEmail });
 });
 
 // Send a message
-app.post("/api/messages", (req, res) => {
+app.post("/api/messages", async (req, res) => {
   const { fromEmail, toEmail, text } = req.body ?? {};
   if (!fromEmail || !toEmail || !text?.trim()) {
     return res.status(400).json({ ok: false, message: "fromEmail, toEmail and text are required." });
   }
 
-  const users = readUsers();
+  const users = await User.find({}).lean();
   const sender = users.find((u) => u.email === fromEmail);
   const receiver = users.find((u) => u.email === toEmail);
 
@@ -1573,7 +1535,6 @@ app.post("/api/messages", (req, res) => {
     return res.status(404).json({ ok: false, message: "User not found." });
   }
 
-  const messages = readMessages();
   const newMsg = {
     id: Date.now(),
     fromEmail,
@@ -1585,8 +1546,7 @@ app.post("/api/messages", (req, res) => {
     read: false
   };
 
-  messages.push(newMsg);
-  writeMessages(messages);
+  await Message.create(newMsg);
 
   // Emit real-time message to recipient
   io.to(toEmail).emit("newMessage", newMsg);
