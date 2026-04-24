@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
 
-const API_BASE =
-"https://threadspace-e2sj.onrender.com"
+const API_BASE = String(import.meta.env.VITE_API_URL || "").trim().replace(/\/$/, "");
 const MAX_MESSAGE_MEDIA_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MESSAGE_MEDIA_TYPES = new Set([
   "image/jpeg",
@@ -44,6 +43,15 @@ function getSelectedMediaType(file) {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   return null;
+}
+
+function getReadableError(error, fallbackMessage) {
+  const message = String(error?.message || "").trim();
+  if (!message) return fallbackMessage;
+  if (message.toLowerCase() === "failed to fetch") {
+    return "Cannot reach the server. Check that the backend URL is correct and the backend is deployed.";
+  }
+  return message;
 }
 
 export default function App() {
@@ -449,7 +457,7 @@ export default function App() {
       setStatus({
         loading: false,
         type: "error",
-        message: error.message || "Something went wrong."
+        message: getReadableError(error, "Something went wrong.")
       });
     }
   }
