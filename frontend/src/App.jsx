@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+ import { useEffect, useState, useRef } from "react";
 import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "").trim().replace(/\/$/, "");
@@ -129,7 +129,7 @@ export default function App() {
     try {
       const response = await fetch(`${API_BASE}/api/posts`);
       const data = await readJsonResponse(response);
-      if (response.ok) setPosts(data.posts || []);
+      if (response.ok) setPosts(Array.isArray(data.posts) ? data.posts : []);
     } catch {
       setPostStatus({ loading: false, type: "error", message: "Could not load posts." });
     } finally {
@@ -142,7 +142,7 @@ export default function App() {
       const response = await fetch(`${API_BASE}/api/subreddits`);
       const data = await readJsonResponse(response);
       if (response.ok) {
-        const next = data.subreddits || [];
+        const next = Array.isArray(data.subreddits) ? data.subreddits : [];
         setSubreddits(next);
         if (next.length && !next.find((item) => item.name === post.subreddit)) {
           setPost((current) => ({ ...current, subreddit: next[0].name }));
@@ -249,7 +249,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/messages?userEmail=${encodeURIComponent(accountEmail)}`);
       const data = await readJsonResponse(res);
-      if (data.ok) setConversations(data.conversations || []);
+      if (data.ok) setConversations(Array.isArray(data.conversations) ? data.conversations : []);
     } catch {}
   }
 
@@ -1035,7 +1035,7 @@ export default function App() {
           <div className="rail-card">
             <div className="rail-title">Communities</div>
             <div className="subreddit-list">
-              {subreddits.map((item) => (
+              {(Array.isArray(subreddits) ? subreddits : []).map((item) => (
                 <button
                   key={item.id}
                   className={post.subreddit === item.name ? "subreddit-pill active" : "subreddit-pill"}
@@ -1066,7 +1066,7 @@ export default function App() {
                 <div className="empty-preview">Loading posts...</div>
               ) : posts.length ? (
                 <div className="posts-feed">
-                  {posts.map((item) => (
+                  {(Array.isArray(posts) ? posts : []).map((item) => (
                     <article className="feed-card" key={item.id} id={`post-${item.id}`}>
                       {/* Post header: avatar + community + author */}
                       <div className="post-header">
@@ -1162,7 +1162,7 @@ export default function App() {
                           </div>
                           {item.comments?.length ? (
                             <div className="comment-list">
-                              {item.comments.map((comment) => (
+                              {(Array.isArray(item.comments) ? item.comments : []).map((comment) => (
                                 <div className="comment-item" key={comment.id}>
                                   <span className="comment-author">{comment.authorName}</span>
                                   <span className="comment-text">{comment.text}</span>
@@ -1195,7 +1195,7 @@ export default function App() {
                 <label>
                   <span>Subreddit</span>
                   <select name="subreddit" value={post.subreddit} onChange={handlePostChange}>
-                    {subreddits.map((item) => (
+                    {(Array.isArray(subreddits) ? subreddits : []).map((item) => (
                       <option key={item.id} value={item.name}>r/{item.name}</option>
                     ))}
                   </select>
@@ -1247,7 +1247,7 @@ export default function App() {
               </form>
               {subredditStatus.message ? <div className={`feedback ${subredditStatus.type}`}>{subredditStatus.message}</div> : null}
               <div className="subreddit-cards">
-                {subreddits.map((item) => (
+                {(Array.isArray(subreddits) ? subreddits : []).map((item) => (
                   <article className="community-card" key={item.id}>
                     <div className="community-handle">r/{item.name}</div>
                     <h3>{item.title}</h3>
@@ -1267,7 +1267,7 @@ export default function App() {
                 <div className="search-empty">No conversations yet. Find someone and send a message!</div>
               ) : (
                 <div className="member-list">
-                  {conversations.map((conv) => (
+                  {(Array.isArray(conversations) ? conversations : []).map((conv) => (
                     <div
                       key={conv.otherEmail}
                       className="member-card"
@@ -1312,7 +1312,7 @@ export default function App() {
                 {threadMessages.length === 0 ? (
                   <div className="search-empty">No messages yet. Say hi! 👋</div>
                 ) : (
-                  threadMessages.map((msg) => (
+                  (Array.isArray(threadMessages) ? threadMessages : []).map((msg) => (
                     <div
                       key={msg.id}
                       style={{
@@ -1522,7 +1522,7 @@ export default function App() {
               <div className="search-empty">Searching members...</div>
             ) : members.length ? (
               <div className="member-list">
-                {members.map((member) => (
+                {(Array.isArray(members) ? members : []).map((member) => (
                   <div className="member-card" key={member.id} style={{ cursor: "pointer" }} onClick={() => void openUserProfile(member.email, member.name)}>
                     <div className="member-avatar">{member.name.charAt(0)}</div>
                     <div style={{ flex: 1 }}>
