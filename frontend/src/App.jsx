@@ -224,8 +224,16 @@ export default function App() {
         })
       });
       const data = await readJsonResponse(res);
-      if (data.ok && socketRef.current) {
-        socketRef.current.emit("sendMessage", data.message);
+      if (data.ok) {
+        // Immediately show your own sent message in the thread
+        setThreadMessages((prev) => {
+          const exists = prev.find((m) => m.id === data.message.id);
+          return exists ? prev : [...prev, data.message];
+        });
+        // Emit to socket so the other person receives it
+        if (socketRef.current) {
+          socketRef.current.emit("sendMessage", data.message);
+        }
       }
     } catch {}
     setMsgLoading(false);
