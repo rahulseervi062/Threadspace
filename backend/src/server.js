@@ -39,7 +39,7 @@ import mongoose from "mongoose";
  // Track connected users
  const onlineUsers = new Map(); // email -> socketId
 
- const io = new Server(server, {
+const io = new Server(server, {
    cors: {
      origin: function(origin, callback) {
     const allowed = [
@@ -85,6 +85,16 @@ import mongoose from "mongoose";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const demoPhone = process.env.DEMO_PHONE || "9999999999";
+const MAX_MESSAGE_MEDIA_BYTES = 10 * 1024 * 1024;
+const ALLOWED_MESSAGE_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime"
+]);
 
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/threadspace")
@@ -240,7 +250,7 @@ mongoose.connection.once("open", seedData);
  
  // Configure multer for file uploads
  const storage = multer.memoryStorage();
- const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
  
 
  // Data is now stored in MongoDB - seeded via seedData()
@@ -250,9 +260,42 @@ mongoose.connection.once("open", seedData);
    return String(value || "").replace(/\D/g, "");
  }
  
- function normalizeEmail(value) {
-   return String(value || "").trim().toLowerCase();
- }
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getMessageMediaType(file) {
+  if (!file?.mimetype) return null;
+  if (file.mimetype === "image/gif") return "gif";
+  if (file.mimetype.startsWith("image/")) return "image";
+  if (file.mimetype.startsWith("video/")) return "video";
+  return null;
+}
+
+function buildDataUri(file) {
+  return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+}
+
+function uploadToCloudinary(file) {
+  return new Promise((resolve, reject) => {
+    const resourceType = file.mimetype.startsWith("video/") ? "video" : "image";
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "threadspace/messages",
+        resource_type: resourceType
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result);
+      }
+    );
+
+    stream.end(file.buffer);
+  });
+}
  
  function findPostIndex(posts, postId) {
    return posts.findIndex((item) => item.id === postId);
@@ -284,9 +327,58 @@ mongoose.connection.once("open", seedData);
  app.use(express.json({ limit: "50mb" }));
  app.use(express.urlencoded({ limit: "50mb", extended: true }));
  
- app.get("/api/health", (_req, res) => {
-   res.json({ ok: true, service: "login-api" });
- });
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, service: "login-api" });
+});
+
+app.post("/api/uploads/message-media", upload.single("file"), async (req, res) => {
+  const file = req.file;
+
+  if (!file) {
+    return res.status(400).json({ ok: false, message: "A media file is required." });
+  }
+
+  if (!ALLOWED_MESSAGE_MEDIA_TYPES.has(file.mimetype)) {
+    return res.status(400).json({
+      ok: false,
+      message: "Only JPG, PNG, WEBP, GIF, MP4, WEBM, and MOV files are allowed."
+    });
+  }
+
+  if (file.size > MAX_MESSAGE_MEDIA_BYTES) {
+    return res.status(400).json({
+      ok: false,
+      message: "Media is too large. The limit is 10MB."
+    });
+  }
+
+  const mediaType = getMessageMediaType(file);
+  if (!mediaType) {
+    return res.status(400).json({ ok: false, message: "Unsupported media type." });
+  }
+
+  try {
+    const hasCloudinaryConfig =
+      Boolean(process.env.CLOUDINARY_CLOUD_NAME) &&
+      Boolean(process.env.CLOUDINARY_API_KEY) &&
+      Boolean(process.env.CLOUDINARY_API_SECRET);
+
+    const mediaUrl = hasCloudinaryConfig
+      ? (await uploadToCloudinary(file)).secure_url
+      : buildDataUri(file);
+
+    return res.status(201).json({
+      ok: true,
+      mediaUrl,
+      mediaType
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: error.message || "Failed to upload media."
+    });
+  }
+});
  
  app.post("/api/login", async (req, res) => {
    const { email, password } = req.body ?? {};
@@ -955,7 +1047,7 @@ mongoose.connection.once("open", seedData);
    });
  });
  
- app.get("/api/posts", (_req, res) => {
+ app.get("/api/posts", async (_req, res) => {
    const posts = await readPosts();
    res.json({
      ok: true,
@@ -967,7 +1059,7 @@ mongoose.connection.once("open", seedData);
  // "trending" and "recommended" as the :id param.
  
  // Trending posts
- app.get("/api/posts/trending", (_req, res) => {
+ app.get("/api/posts/trending", async (_req, res) => {
    const posts = await readPosts();
    const now = Date.now();
    const oneDayAgo = now - (24 * 60 * 60 * 1000);
@@ -1294,7 +1386,7 @@ mongoose.connection.once("open", seedData);
    });
  });
  
- function deleteCommentHandler(req, res) {
+ async function deleteCommentHandler(req, res) {
    const postId = Number(req.params.postId);
    const commentId = Number(req.params.commentId);
    const userEmail = normalizeEmail(req.query.userEmail || req.body?.userEmail);
@@ -1496,23 +1588,21 @@ app.get("/api/messages/:otherEmail", async (req, res) => {
   const otherEmail = decodeURIComponent(req.params.otherEmail);
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required." });
 
-  const messages = await Message.find({}).sort({ createdAt: 1 }).lean();
-  // Mark messages as read
-  let changed = false;
-  const updated = messages.map((msg) => {
-    if (msg.fromEmail === otherEmail && msg.toEmail === userEmail && !msg.read) {
-      changed = true;
-      return { ...msg, read: true };
-    }
-    return msg;
-  });
-  if (changed) writeMessages(updated);
+  await Message.updateMany(
+    {
+      fromEmail: otherEmail,
+      toEmail: userEmail,
+      read: false
+    },
+    { $set: { read: true } }
+  );
 
-  const thread = updated.filter(
-    (msg) =>
-      (msg.fromEmail === userEmail && msg.toEmail === otherEmail) ||
-      (msg.fromEmail === otherEmail && msg.toEmail === userEmail)
-  ).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const thread = await Message.find({
+    $or: [
+      { fromEmail: userEmail, toEmail: otherEmail },
+      { fromEmail: otherEmail, toEmail: userEmail }
+    ]
+  }).sort({ createdAt: 1 }).lean();
 
   const users = await User.find({}).lean();
   const otherUser = users.find((u) => u.email === otherEmail);
@@ -1522,9 +1612,13 @@ app.get("/api/messages/:otherEmail", async (req, res) => {
 
 // Send a message
 app.post("/api/messages", async (req, res) => {
-  const { fromEmail, toEmail, text } = req.body ?? {};
-  if (!fromEmail || !toEmail || !text?.trim()) {
-    return res.status(400).json({ ok: false, message: "fromEmail, toEmail and text are required." });
+  const { fromEmail, toEmail, text, mediaUrl, mediaType } = req.body ?? {};
+  if (!fromEmail || !toEmail || (!text?.trim() && !mediaUrl)) {
+    return res.status(400).json({ ok: false, message: "fromEmail, toEmail and text or media are required." });
+  }
+
+  if (mediaUrl && !["image", "gif", "video"].includes(mediaType)) {
+    return res.status(400).json({ ok: false, message: "Invalid media type." });
   }
 
   const users = await User.find({}).lean();
@@ -1541,7 +1635,9 @@ app.post("/api/messages", async (req, res) => {
     fromName: sender.name,
     toEmail,
     toName: receiver.name,
-    text: String(text).trim(),
+    text: text ? String(text).trim() : "",
+    mediaUrl,
+    mediaType,
     createdAt: new Date().toISOString(),
     read: false
   };

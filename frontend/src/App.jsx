@@ -1,8 +1,18 @@
- import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
 
 const API_BASE =
 "https://threadspace-e2sj.onrender.com"
+const MAX_MESSAGE_MEDIA_BYTES = 10 * 1024 * 1024;
+const ALLOWED_MESSAGE_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime"
+]);
 
 async function readJsonResponse(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -17,6 +27,23 @@ async function readJsonResponse(response) {
   } catch {
     throw new Error("Received an invalid JSON response from the server.");
   }
+}
+
+function getMessagePreview(message) {
+  if (message?.text?.trim()) return message.text.trim();
+  if (message?.mediaType === "video") return "Sent a video";
+  if (message?.mediaType === "gif") return "Sent a GIF";
+  if (message?.mediaType === "image") return "Sent a photo";
+  if (message?.mediaUrl) return "Sent an attachment";
+  return "No messages yet";
+}
+
+function getSelectedMediaType(file) {
+  if (!file?.type) return null;
+  if (file.type === "image/gif") return "gif";
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  return null;
 }
 
 export default function App() {
@@ -74,6 +101,7 @@ export default function App() {
   const [threadMessages, setThreadMessages] = useState([]);
   const [msgDraft, setMsgDraft] = useState("");
   const [msgLoading, setMsgLoading] = useState(false);
+  const [msgError, setMsgError] = useState("");
   const [mediaFile, setMediaFile] = useState(null);       // selected File object
   const [mediaPreview, setMediaPreview] = useState(null); // local object URL for preview
   const [mediaUploading, setMediaUploading] = useState(false);
@@ -157,26 +185,44 @@ export default function App() {
           return exists ? prev : [...prev, message];
         });
         setConversations((prev) => {
-          const exists = prev.find(
-            (c) => c.email === message.fromEmail || c.email === message.toEmail
-          );
+          const otherEmail =
+            message.fromEmail === accountEmail ? message.toEmail : message.fromEmail;
+          const otherName =
+            message.fromEmail === accountEmail ? message.toName : message.fromName;
+          const preview = getMessagePreview(message);
+          const exists = prev.find((c) => c.otherEmail === otherEmail);
+
           if (!exists) {
             return [
               ...prev,
               {
-                email: message.fromEmail === accountEmail ? message.toEmail : message.fromEmail,
-                name: message.fromEmail === accountEmail ? message.toName : message.fromName,
-                lastMessage: message.text,
-                lastAt: message.createdAt
+                otherEmail,
+                otherName,
+                messages: [message],
+                lastAt: message.createdAt,
+                unread: message.toEmail === accountEmail ? 1 : 0,
+                lastMessage: preview
               }
             ];
           }
-          return prev.map((c) => {
-            if (c.email === message.fromEmail || c.email === message.toEmail) {
-              return { ...c, lastMessage: message.text, lastAt: message.createdAt };
+
+          const next = prev.map((c) => {
+            if (c.otherEmail === otherEmail) {
+              const nextMessages = [...(c.messages || []), message];
+              const unreadIncrement = message.toEmail === accountEmail ? 1 : 0;
+              return {
+                ...c,
+                otherName,
+                messages: nextMessages,
+                lastAt: message.createdAt,
+                unread: (c.unread || 0) + unreadIncrement,
+                lastMessage: preview
+              };
             }
             return c;
           });
+
+          return next.sort((a, b) => String(b.lastAt || "").localeCompare(String(a.lastAt || "")));
         });
       }
     });
@@ -203,36 +249,48 @@ export default function App() {
     setActiveConv(otherEmail);
     setActiveConvName(otherName);
     setView("thread");
+    setMsgError("");
     try {
       const res = await fetch(`${API_BASE}/api/messages/${encodeURIComponent(otherEmail)}?userEmail=${encodeURIComponent(accountEmail)}`);
       const data = await readJsonResponse(res);
-      if (data.ok) setThreadMessages(data.messages || []);
+      if (data.ok) {
+        setThreadMessages(data.messages || []);
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.otherEmail === otherEmail ? { ...conv, unread: 0 } : conv
+          )
+        );
+      }
     } catch {}
-  }
-
-  async function uploadToCloudinary(file) {
-    const CLOUD_NAME = "YOUR_CLOUD_NAME"; // 🔁 Replace with your Cloudinary cloud name
-    const UPLOAD_PRESET = "YOUR_UPLOAD_PRESET"; // 🔁 Replace with your unsigned upload preset
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", UPLOAD_PRESET);
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, {
-      method: "POST",
-      body: formData
-    });
-    const data = await res.json();
-    if (!data.secure_url) throw new Error("Cloudinary upload failed");
-    return { url: data.secure_url, type: data.resource_type, format: data.format };
   }
 
   function handleMediaSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!ALLOWED_MESSAGE_MEDIA_TYPES.has(file.type)) {
+      setMsgError("Please select a JPG, PNG, WEBP, GIF, MP4, WEBM, or MOV file.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (file.size > MAX_MESSAGE_MEDIA_BYTES) {
+      setMsgError("Media must be 10MB or smaller.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    if (mediaPreview) {
+      URL.revokeObjectURL(mediaPreview);
+    }
+
+    setMsgError("");
     setMediaFile(file);
     setMediaPreview(URL.createObjectURL(file));
   }
 
   function clearMedia() {
+    if (mediaPreview) {
+      URL.revokeObjectURL(mediaPreview);
+    }
     setMediaFile(null);
     setMediaPreview(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -242,6 +300,7 @@ export default function App() {
     if (!msgDraft.trim() && !mediaFile) return;
     if (!activeConv) return;
     setMsgLoading(true);
+    setMsgError("");
     const text = msgDraft.trim();
     setMsgDraft("");
     let mediaUrl = null;
@@ -250,10 +309,23 @@ export default function App() {
     if (mediaFile) {
       setMediaUploading(true);
       try {
-        const uploaded = await uploadToCloudinary(mediaFile);
-        mediaUrl = uploaded.url;
-        mediaType = uploaded.type; // "image" | "video"
-      } catch {
+        const uploadData = new FormData();
+        uploadData.append("file", mediaFile);
+
+        const uploadRes = await fetch(`${API_BASE}/api/uploads/message-media`, {
+          method: "POST",
+          body: uploadData
+        });
+        const uploadJson = await readJsonResponse(uploadRes);
+        if (!uploadRes.ok) {
+          throw new Error(uploadJson.message || "Failed to upload media.");
+        }
+
+        mediaUrl = uploadJson.mediaUrl || null;
+        mediaType = uploadJson.mediaType || getSelectedMediaType(mediaFile);
+      } catch (error) {
+        setMsgError(error.message || "Failed to upload media.");
+        setMsgDraft(text);
         setMsgLoading(false);
         setMediaUploading(false);
         return;
@@ -283,14 +355,51 @@ export default function App() {
           const exists = prev.find((m) => m.id === data.message.id);
           return exists ? prev : [...prev, data.message];
         });
-        // Emit to socket so the other person receives it
-        if (socketRef.current) {
-          socketRef.current.emit("sendMessage", data.message);
-        }
+        setConversations((prev) => {
+          const preview = getMessagePreview(data.message);
+          const existing = prev.find((conv) => conv.otherEmail === activeConv);
+          if (!existing) {
+            return [
+              {
+                otherEmail: activeConv,
+                otherName: activeConvName,
+                messages: [data.message],
+                lastAt: data.message.createdAt,
+                unread: 0,
+                lastMessage: preview
+              },
+              ...prev
+            ];
+          }
+
+          return prev
+            .map((conv) =>
+              conv.otherEmail === activeConv
+                ? {
+                    ...conv,
+                    otherName: activeConvName,
+                    messages: [...(conv.messages || []), data.message],
+                    lastAt: data.message.createdAt,
+                    unread: 0,
+                    lastMessage: preview
+                  }
+                : conv
+            )
+            .sort((a, b) => String(b.lastAt || "").localeCompare(String(a.lastAt || "")));
+        });
       }
-    } catch {}
+    } catch (error) {
+      setMsgError(error.message || "Unable to send message.");
+      setMsgDraft(text);
+    }
     setMsgLoading(false);
   }
+
+  useEffect(() => () => {
+    if (mediaPreview) {
+      URL.revokeObjectURL(mediaPreview);
+    }
+  }, [mediaPreview]);
 
   async function openUserProfile(userEmail, userName) {
     setProfileUser({ email: userEmail, name: userName });
@@ -1160,7 +1269,7 @@ export default function App() {
                       <div className="member-avatar">{conv.otherName?.charAt(0).toUpperCase()}</div>
                       <div style={{ flex: 1 }}>
                         <div className="member-name">{conv.otherName}</div>
-                        <div className="member-email">{conv.messages?.[conv.messages.length - 1]?.text?.slice(0, 40)}...</div>
+                        <div className="member-email">{getMessagePreview(conv.messages?.[conv.messages.length - 1] || conv).slice(0, 40)}</div>
                       </div>
                       {conv.unread > 0 ? (
                         <div style={{ background: "var(--accent)", color: "#fff", borderRadius: "999px", padding: "2px 8px", fontSize: "0.75rem", fontWeight: 700 }}>{conv.unread}</div>
@@ -1241,6 +1350,9 @@ export default function App() {
               {/* Message input */}
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
                 {/* Media preview */}
+                {msgError ? (
+                  <div className="feedback error" style={{ marginBottom: 8 }}>{msgError}</div>
+                ) : null}
                 {mediaPreview ? (
                   <div style={{ position: "relative", display: "inline-block", marginBottom: 8 }}>
                     {mediaFile?.type.startsWith("video") ? (
