@@ -74,6 +74,10 @@ export default function App() {
   const [threadMessages, setThreadMessages] = useState([]);
   const [msgDraft, setMsgDraft] = useState("");
   const [msgLoading, setMsgLoading] = useState(false);
+  const [mediaFile, setMediaFile] = useState(null);       // selected File object
+  const [mediaPreview, setMediaPreview] = useState(null); // local object URL for preview
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const [profileUser, setProfileUser] = useState(null); // user being viewed
 
   useEffect(() => {
@@ -206,11 +210,58 @@ export default function App() {
     } catch {}
   }
 
+  async function uploadToCloudinary(file) {
+    const CLOUD_NAME = "YOUR_CLOUD_NAME"; // 🔁 Replace with your Cloudinary cloud name
+    const UPLOAD_PRESET = "YOUR_UPLOAD_PRESET"; // 🔁 Replace with your unsigned upload preset
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", UPLOAD_PRESET);
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    if (!data.secure_url) throw new Error("Cloudinary upload failed");
+    return { url: data.secure_url, type: data.resource_type, format: data.format };
+  }
+
+  function handleMediaSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMediaFile(file);
+    setMediaPreview(URL.createObjectURL(file));
+  }
+
+  function clearMedia() {
+    setMediaFile(null);
+    setMediaPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   async function sendMessage() {
-    if (!msgDraft.trim() || !activeConv) return;
+    if (!msgDraft.trim() && !mediaFile) return;
+    if (!activeConv) return;
     setMsgLoading(true);
     const text = msgDraft.trim();
     setMsgDraft("");
+    let mediaUrl = null;
+    let mediaType = null;
+
+    if (mediaFile) {
+      setMediaUploading(true);
+      try {
+        const uploaded = await uploadToCloudinary(mediaFile);
+        mediaUrl = uploaded.url;
+        mediaType = uploaded.type; // "image" | "video"
+      } catch {
+        setMsgLoading(false);
+        setMediaUploading(false);
+        return;
+      }
+      setMediaUploading(false);
+      clearMedia();
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/messages`, {
         method: "POST",
@@ -220,7 +271,9 @@ export default function App() {
           fromName: accountName,
           toEmail: activeConv,
           toName: activeConvName,
-          text
+          text,
+          mediaUrl,
+          mediaType
         })
       });
       const data = await readJsonResponse(res);
@@ -1153,14 +1206,29 @@ export default function App() {
                     >
                       <div style={{
                         maxWidth: "75%",
-                        padding: "10px 14px",
+                        padding: msg.mediaUrl && !msg.text ? "4px" : "10px 14px",
                         borderRadius: msg.fromEmail === accountEmail ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
                         background: msg.fromEmail === accountEmail ? "var(--accent)" : "var(--bg-3)",
                         color: msg.fromEmail === accountEmail ? "#fff" : "var(--text)",
                         fontSize: "0.92rem",
-                        lineHeight: 1.4
+                        lineHeight: 1.4,
+                        overflow: "hidden"
                       }}>
-                        {msg.text}
+                        {msg.mediaUrl && msg.mediaType === "video" ? (
+                          <video
+                            src={msg.mediaUrl}
+                            controls
+                            style={{ display: "block", maxWidth: "100%", maxHeight: 280, borderRadius: 14 }}
+                          />
+                        ) : msg.mediaUrl ? (
+                          <img
+                            src={msg.mediaUrl}
+                            alt="media"
+                            style={{ display: "block", maxWidth: "100%", maxHeight: 280, borderRadius: 14, cursor: "pointer" }}
+                            onClick={() => window.open(msg.mediaUrl, "_blank")}
+                          />
+                        ) : null}
+                        {msg.text ? <span style={{ display: msg.mediaUrl ? "block" : "inline", marginTop: msg.mediaUrl ? 6 : 0 }}>{msg.text}</span> : null}
                       </div>
                       <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 3, padding: "0 4px" }}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -1171,33 +1239,75 @@ export default function App() {
                 <div ref={messagesEndRef} />
               </div>
               {/* Message input */}
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-                <textarea
-                  style={{
-                    flex: 1, padding: "10px 14px", borderRadius: 20,
-                    border: "1px solid var(--border)", background: "var(--bg-3)",
-                    color: "var(--text)", resize: "none", minHeight: 44, maxHeight: 120,
-                    fontSize: "0.92rem", outline: "none"
-                  }}
-                  placeholder={`Message ${activeConvName}...`}
-                  value={msgDraft}
-                  onChange={(e) => setMsgDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
-                />
-                <button
-                  type="button"
-                  onClick={() => void sendMessage()}
-                  disabled={msgLoading || !msgDraft.trim()}
-                  style={{
-                    width: 44, height: 44, border: 0, borderRadius: "999px",
-                    background: msgDraft.trim() ? "var(--accent)" : "var(--bg-3)",
-                    color: msgDraft.trim() ? "#fff" : "var(--muted)",
-                    display: "grid", placeItems: "center", cursor: "pointer",
-                    flexShrink: 0, transition: "background 0.15s"
-                  }}
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
-                </button>
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                {/* Media preview */}
+                {mediaPreview ? (
+                  <div style={{ position: "relative", display: "inline-block", marginBottom: 8 }}>
+                    {mediaFile?.type.startsWith("video") ? (
+                      <video src={mediaPreview} style={{ maxHeight: 120, maxWidth: 200, borderRadius: 12 }} />
+                    ) : (
+                      <img src={mediaPreview} alt="preview" style={{ maxHeight: 120, maxWidth: 200, borderRadius: 12, objectFit: "cover" }} />
+                    )}
+                    <button
+                      type="button"
+                      onClick={clearMedia}
+                      style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: "50%", border: 0, background: "#ff4444", color: "#fff", cursor: "pointer", fontSize: 14, display: "grid", placeItems: "center", lineHeight: 1 }}
+                    >×</button>
+                  </div>
+                ) : null}
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,image/gif,video/*"
+                    style={{ display: "none" }}
+                    onChange={handleMediaSelect}
+                  />
+                  {/* Attach button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={msgLoading || mediaUploading}
+                    title="Attach image, GIF or video"
+                    style={{
+                      width: 44, height: 44, border: "1px solid var(--border)", borderRadius: "999px",
+                      background: "var(--bg-3)", color: "var(--muted)",
+                      display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>
+                  </button>
+                  <textarea
+                    style={{
+                      flex: 1, padding: "10px 14px", borderRadius: 20,
+                      border: "1px solid var(--border)", background: "var(--bg-3)",
+                      color: "var(--text)", resize: "none", minHeight: 44, maxHeight: 120,
+                      fontSize: "0.92rem", outline: "none"
+                    }}
+                    placeholder={mediaUploading ? "Uploading..." : `Message ${activeConvName}...`}
+                    value={msgDraft}
+                    onChange={(e) => setMsgDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void sendMessage()}
+                    disabled={msgLoading || mediaUploading || (!msgDraft.trim() && !mediaFile)}
+                    style={{
+                      width: 44, height: 44, border: 0, borderRadius: "999px",
+                      background: (msgDraft.trim() || mediaFile) ? "var(--accent)" : "var(--bg-3)",
+                      color: (msgDraft.trim() || mediaFile) ? "#fff" : "var(--muted)",
+                      display: "grid", placeItems: "center", cursor: "pointer",
+                      flexShrink: 0, transition: "background 0.15s"
+                    }}
+                  >
+                    {mediaUploading
+                      ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      : <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+                    }
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}
