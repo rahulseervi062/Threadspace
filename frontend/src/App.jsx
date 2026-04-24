@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+ import { useEffect, useState } from "react";
 
 const API_BASE =
 "https://threadspace-e2sj.onrender.com"
@@ -61,6 +61,7 @@ export default function App() {
   });
   const [postsLoading, setPostsLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [headerSearch, setHeaderSearch] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -670,10 +671,16 @@ export default function App() {
     <main className="reddit-shell">
       <header className="site-header">
         <div className="site-brand">threadspace</div>
+        <div className="header-search">
+          <span className="header-search-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </span>
+          <input type="text" placeholder="Search Threadspace" value={headerSearch} onChange={(e) => setHeaderSearch(e.target.value)} />
+        </div>
         <nav className="site-nav">
-          <button className={view === "feed" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("feed")}>Home Feed</button>
-          <button className={view === "create" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("create")}>New Post</button>
-          <button className={view === "subreddits" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("subreddits")}>Subreddits</button>
+          <button className={view === "feed" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("feed")}>Home</button>
+          <button className={view === "create" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("create")}>Post</button>
+          <button className={view === "subreddits" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("subreddits")}>Communities</button>
         </nav>
         <div className="account-menu-wrap">
           <button className="account-icon" type="button" onClick={() => setShowAccountMenu((v) => !v)}>
@@ -681,12 +688,42 @@ export default function App() {
           </button>
           {showAccountMenu ? (
             <div className="account-menu">
-              <div className="account-menu-label">Account Name</div>
+              <div className="account-menu-label">Signed in as</div>
               <div className="account-menu-value">{accountName}</div>
+              <div className="account-menu-label" style={{ marginTop: 4, fontSize: "0.75rem" }}>{accountEmail}</div>
+              <div className="account-menu-actions">
+                <button type="button" onClick={() => { setShowAccountMenu(false); setView("settings"); }}>Settings</button>
+                <button type="button" onClick={() => { setShowAccountMenu(false); setIsAuthenticated(false); }}>Sign Out</button>
+              </div>
             </div>
           ) : null}
         </div>
       </header>
+
+      {/* Mobile Bottom Nav */}
+      <nav className="bottom-nav">
+        <button className={view === "feed" ? "bottom-nav-btn active" : "bottom-nav-btn"} type="button" onClick={() => setView("feed")}>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+          Home
+        </button>
+        <button className={view === "search" ? "bottom-nav-btn active" : "bottom-nav-btn"} type="button" onClick={() => setView("search")}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Search
+        </button>
+        <button className="bottom-nav-btn" type="button" onClick={() => setView("create")}>
+          <div className="create-circle">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </div>
+        </button>
+        <button className={view === "notifications" ? "bottom-nav-btn active" : "bottom-nav-btn"} type="button" onClick={() => setView("notifications")}>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+          Inbox
+        </button>
+        <button className={view === "settings" ? "bottom-nav-btn active" : "bottom-nav-btn"} type="button" onClick={() => setView("settings")}>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          You
+        </button>
+      </nav>
 
       <section className="app-grid">
         <aside className="left-rail">
@@ -726,70 +763,72 @@ export default function App() {
                 <div className="posts-feed">
                   {posts.map((item) => (
                     <article className="feed-card" key={item.id} id={`post-${item.id}`}>
-                      <div className="feed-meta">
-                        <span className="meta-subreddit">r/{item.subreddit}</span>
-                        <span className="meta-author">Posted by {item.authorName}</span>
+                      {/* Post header: avatar + community + author */}
+                      <div className="post-header">
+                        <div className="post-community-avatar">
+                          {item.subreddit?.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="post-meta-col">
+                          <div className="post-meta-top">
+                            <span className="community-name">r/{item.subreddit}</span>
+                          </div>
+                          <div className="post-meta-bottom">
+                            <span>Posted by u/{item.authorName}</span>
+                          </div>
+                        </div>
                       </div>
                       <p className="post-caption">{item.caption}</p>
-                      <img className="post-image" src={item.imageUrl} alt="Post" />
+                      {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
                       <div className="post-actions">
-                        <button
-                          className={
-                            item.likedBy?.includes(accountEmail)
-                              ? "action-button active"
-                              : "action-button"
-                          }
-                          type="button"
-                          onClick={() => void handleReaction(item.id, "like")}
-                        >
-                          {renderIcon("like")}
-                          <span>{item.likes || 0}</span>
-                        </button>
-                        <button
-                          className={
-                            item.dislikedBy?.includes(accountEmail)
-                              ? "action-button active"
-                              : "action-button"
-                          }
-                          type="button"
-                          onClick={() => void handleReaction(item.id, "dislike")}
-                        >
-                          {renderIcon("dislike")}
-                          <span>{item.dislikes || 0}</span>
-                        </button>
+                        {/* Vote cluster */}
+                        <div className="vote-cluster">
+                          <button
+                            className={item.likedBy?.includes(accountEmail) ? "vote-btn upvoted" : "vote-btn"}
+                            type="button"
+                            onClick={() => void handleReaction(item.id, "like")}
+                          >
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5.5C14 4.12 12.88 3 11.5 3L7 10v11h10.28c.92 0 1.72-.62 1.95-1.51l1.38-5.5A2 2 0 0 0 18.67 11H15a1 1 0 0 1-1-1Z"/><path d="M5 10H3v11h2V10Z"/></svg>
+                            <span className="vote-count">{item.likes || 0}</span>
+                          </button>
+                          <div className="vote-divider" />
+                          <button
+                            className={item.dislikedBy?.includes(accountEmail) ? "vote-btn downvoted" : "vote-btn"}
+                            type="button"
+                            onClick={() => void handleReaction(item.id, "dislike")}
+                          >
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15v3.5c0 1.38 1.12 2.5 2.5 2.5L17 14V3H6.72C5.8 3 5 3.62 4.77 4.51l-1.38 5.5A2 2 0 0 0 5.33 13H9a1 1 0 0 1 1 1Z"/><path d="M19 3h2v11h-2V3Z"/></svg>
+                          </button>
+                        </div>
+                        {/* Comments */}
                         <button
                           className={openComments[item.id] ? "action-button active" : "action-button"}
                           type="button"
                           onClick={() => toggleComments(item.id)}
                         >
-                          {renderIcon("comment")}
-                          <span>{item.comments?.length || 0}</span>
+                          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+                          {item.comments?.length || 0}
                         </button>
+                        {/* Save / Bell */}
                         <button
-                          className={
-                            item.savedBy?.includes(accountEmail)
-                              ? "action-button active"
-                              : "action-button"
-                          }
+                          className={item.savedBy?.includes(accountEmail) ? "action-button active" : "action-button"}
                           type="button"
                           onClick={() => void handleSave(item.id)}
                         >
-                          {renderIcon("save")}
+                          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 22a1 1 0 0 1-.5-.14L12 18.2l-5.5 3.66A1 1 0 0 1 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16a1 1 0 0 1-1 1z"/></svg>
                         </button>
+                        {/* Share */}
                         <button
                           className="action-button"
                           type="button"
                           onClick={() => void handleShare(item.id)}
                         >
-                          {renderIcon("share")}
+                          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 3 21 10l-7 7v-4c-5 0-8 1.5-11 5 1-6 4-11 11-12V3Z"/></svg>
+                          Share
                         </button>
+                        {/* Delete if own post */}
                         {item.authorEmail === accountEmail ? (
-                          <button
-                            className="action-button delete"
-                            type="button"
-                            onClick={() => void handleDelete(item.id)}
-                          >
-                            {renderIcon("delete")}
+                          <button className="action-button delete" type="button" onClick={() => void handleDelete(item.id)}>
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Z"/></svg>
                           </button>
                         ) : null}
                       </div>
@@ -910,6 +949,49 @@ export default function App() {
               </div>
             </div>
           ) : null}
+
+          {view === "search" ? (
+            <div className="content-card">
+              <div className="section-head" style={{ padding: 0, marginBottom: 14 }}>
+                <h1>Search</h1>
+              </div>
+              <div className="search-box" style={{ marginBottom: 14 }}>
+                <input
+                  type="text"
+                  placeholder="Search posts, communities..."
+                  value={headerSearch}
+                  onChange={(e) => setHeaderSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {headerSearch.trim() ? (
+                <div className="posts-feed">
+                  {posts.filter(p =>
+                    p.caption?.toLowerCase().includes(headerSearch.toLowerCase()) ||
+                    p.subreddit?.toLowerCase().includes(headerSearch.toLowerCase())
+                  ).map(item => (
+                    <article className="feed-card" key={item.id}>
+                      <div className="post-header">
+                        <div className="post-community-avatar">{item.subreddit?.charAt(0).toUpperCase()}</div>
+                        <div className="post-meta-col">
+                          <div className="post-meta-top"><span className="community-name">r/{item.subreddit}</span></div>
+                          <div className="post-meta-bottom"><span>u/{item.authorName}</span></div>
+                        </div>
+                      </div>
+                      <p className="post-caption">{item.caption}</p>
+                      {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
+                    </article>
+                  ))}
+                  {posts.filter(p =>
+                    p.caption?.toLowerCase().includes(headerSearch.toLowerCase()) ||
+                    p.subreddit?.toLowerCase().includes(headerSearch.toLowerCase())
+                  ).length === 0 && <div className="search-empty">No results for "{headerSearch}"</div>}
+                </div>
+              ) : (
+                <div className="search-empty">Type something to search...</div>
+              )}
+            </div>
+          ) : null}
         </section>
 
         <aside className="right-rail">
@@ -924,7 +1006,7 @@ export default function App() {
                   const value = event.target.value;
                   setMemberSearch(value);
                   void searchMembers(value);
-                }}
+                }} 
               />
             </label>
             {membersLoading ? (
