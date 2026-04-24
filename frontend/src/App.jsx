@@ -47,6 +47,7 @@ export default function App() {
   const [memberSearch, setMemberSearch] = useState("");
   const [members, setMembers] = useState([]);
   const [commentDrafts, setCommentDrafts] = useState({});
+  const [commentErrors, setCommentErrors] = useState({});
   const [openComments, setOpenComments] = useState({});
   const [status, setStatus] = useState({ loading: false, type: "", message: "" });
   const [postStatus, setPostStatus] = useState({
@@ -347,7 +348,11 @@ export default function App() {
 
   async function handleCommentSubmit(postId) {
     const text = (commentDrafts[postId] || "").trim();
-    if (!text) return;
+    if (!text) {
+      setCommentErrors((prev) => ({ ...prev, [postId]: "Please write a comment first." }));
+      setTimeout(() => setCommentErrors((prev) => ({ ...prev, [postId]: "" })), 3000);
+      return;
+    }
 
     try {
       const response = await fetch(`${API_BASE}/api/posts/${postId}/comments`, {
@@ -365,16 +370,11 @@ export default function App() {
       setPosts((current) =>
         current.map((item) => (item.id === postId ? data.post : item))
       );
-      setCommentDrafts((current) => ({
-        ...current,
-        [postId]: ""
-      }));
+      setCommentDrafts((current) => ({ ...current, [postId]: "" }));
+      setCommentErrors((prev) => ({ ...prev, [postId]: "" }));
     } catch (error) {
-      setPostStatus({
-        loading: false,
-        type: "error",
-        message: error.message || "Unable to add comment."
-      });
+      setCommentErrors((prev) => ({ ...prev, [postId]: error.message || "Unable to add comment." }));
+      setTimeout(() => setCommentErrors((prev) => ({ ...prev, [postId]: "" })), 4000);
     }
   }
 
@@ -756,7 +756,7 @@ export default function App() {
                   Create Post
                 </button>
               </div>
-              {postStatus.message ? <div className={`feedback ${postStatus.type}`}>{postStatus.message}</div> : null}
+              {postStatus.message && postStatus.type !== "error" ? <div className={`feedback ${postStatus.type}`}>{postStatus.message}</div> : null}
               {postsLoading ? (
                 <div className="empty-preview">Loading posts...</div>
               ) : posts.length ? (
@@ -835,6 +835,9 @@ export default function App() {
                       {openComments[item.id] ? (
                         <>
                           <div className="comment-box">
+                            {commentErrors[item.id] ? (
+                              <div className="feedback error" style={{ marginTop: 0 }}>{commentErrors[item.id]}</div>
+                            ) : null}
                             <textarea
                               placeholder="Write a comment"
                               value={commentDrafts[item.id] || ""}
