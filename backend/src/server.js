@@ -36,6 +36,9 @@ import bcrypt from "bcrypt";
  
  const app = express();
  const server = createServer(app);
+ // Track connected users
+ const onlineUsers = new Map(); // email -> socketId
+
  const io = new Server(server, {
    cors: {
      origin: function(origin, callback) {
@@ -51,6 +54,31 @@ import bcrypt from "bcrypt";
   }
    }
  });
+ // Socket.io connection handler
+ io.on("connection", (socket) => {
+   socket.on("join", (email) => {
+     if (email) {
+       onlineUsers.set(email, socket.id);
+       socket.join(email);
+     }
+   });
+
+   socket.on("sendMessage", (message) => {
+     if (message?.toEmail) {
+       io.to(message.toEmail).emit("newMessage", message);
+     }
+   });
+
+   socket.on("disconnect", () => {
+     for (const [email, id] of onlineUsers.entries()) {
+       if (id === socket.id) {
+         onlineUsers.delete(email);
+         break;
+       }
+     }
+   });
+ });
+
  const port = Number(process.env.PORT || 4001);
  const demoEmail = process.env.DEMO_EMAIL || "demo@site.com";
  const demoPassword = process.env.DEMO_PASSWORD || "Password@123";
@@ -1559,6 +1587,9 @@ app.post("/api/messages", (req, res) => {
 
   messages.push(newMsg);
   writeMessages(messages);
+
+  // Emit real-time message to recipient
+  io.to(toEmail).emit("newMessage", newMsg);
 
   return res.status(201).json({ ok: true, message: newMsg });
 });

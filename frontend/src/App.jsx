@@ -1,4 +1,5 @@
- import { useEffect, useState } from "react";
+ import { useEffect, useState, useRef } from "react";
+import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
 
 const API_BASE =
 "https://threadspace-e2sj.onrender.com"
@@ -64,6 +65,8 @@ export default function App() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [headerSearch, setHeaderSearch] = useState("");
   const [conversations, setConversations] = useState([]);
+  const socketRef = useRef(null);
+  const messagesEndRef = useRef(null);
   const [activeConv, setActiveConv] = useState(null); // otherEmail
   const [activeConvName, setActiveConvName] = useState("");
   const [threadMessages, setThreadMessages] = useState([]);
@@ -125,6 +128,63 @@ export default function App() {
     }
   }
 
+  // Socket.io real-time connection
+  useEffect(() => {
+    if (!isAuthenticated || !accountEmail) return;
+
+    const socket = io(API_BASE, {
+      transports: ["websocket", "polling"]
+    });
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      socket.emit("join", accountEmail);
+    });
+
+    socket.on("newMessage", (message) => {
+      if (
+        message.fromEmail === accountEmail ||
+        message.toEmail === accountEmail
+      ) {
+        setThreadMessages((prev) => {
+          const exists = prev.find((m) => m.id === message.id);
+          return exists ? prev : [...prev, message];
+        });
+        setConversations((prev) => {
+          const exists = prev.find(
+            (c) => c.email === message.fromEmail || c.email === message.toEmail
+          );
+          if (!exists) {
+            return [
+              ...prev,
+              {
+                email: message.fromEmail === accountEmail ? message.toEmail : message.fromEmail,
+                name: message.fromEmail === accountEmail ? message.toName : message.fromName,
+                lastMessage: message.text,
+                lastAt: message.createdAt
+              }
+            ];
+          }
+          return prev.map((c) => {
+            if (c.email === message.fromEmail || c.email === message.toEmail) {
+              return { ...c, lastMessage: message.text, lastAt: message.createdAt };
+            }
+            return c;
+          });
+        });
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [isAuthenticated, accountEmail]);
+
+  // Auto scroll to bottom of messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [threadMessages]);
+
   async function loadConversations() {
     try {
       const res = await fetch(`${API_BASE}/api/messages?userEmail=${encodeURIComponent(accountEmail)}`);
@@ -147,16 +207,23 @@ export default function App() {
   async function sendMessage() {
     if (!msgDraft.trim() || !activeConv) return;
     setMsgLoading(true);
+    const text = msgDraft.trim();
+    setMsgDraft("");
     try {
       const res = await fetch(`${API_BASE}/api/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fromEmail: accountEmail, toEmail: activeConv, text: msgDraft.trim() })
+        body: JSON.stringify({
+          fromEmail: accountEmail,
+          fromName: accountName,
+          toEmail: activeConv,
+          toName: activeConvName,
+          text
+        })
       });
       const data = await readJsonResponse(res);
-      if (data.ok) {
-        setThreadMessages((prev) => [...prev, data.message]);
-        setMsgDraft("");
+      if (data.ok && socketRef.current) {
+        socketRef.current.emit("sendMessage", data.message);
       }
     } catch {}
     setMsgLoading(false);
@@ -1042,9 +1109,15 @@ export default function App() {
                   <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
                   Back
                 </button>
-                <h1 style={{ fontSize: "1rem" }}>
-                  <div className="member-avatar" style={{ display: "inline-grid", width: 28, height: 28, fontSize: "0.8rem", marginRight: 8, verticalAlign: "middle" }}>{activeConvName?.charAt(0).toUpperCase()}</div>
-                  {activeConvName}
+                <h1 style={{ fontSize: "1rem", display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span>
+                    <div className="member-avatar" style={{ display: "inline-grid", width: 28, height: 28, fontSize: "0.8rem", marginRight: 8, verticalAlign: "middle" }}>{activeConvName?.charAt(0).toUpperCase()}</div>
+                    {activeConvName}
+                  </span>
+                  <span style={{ fontSize: "11px", color: "#22c55e", display: "flex", alignItems: "center", gap: 4, marginLeft: 36 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", display: "inline-block" }}></span>
+                    Online
+                  </span>
                 </h1>
               </div>
               {/* Messages thread */}
@@ -1078,6 +1151,7 @@ export default function App() {
                     </div>
                   ))
                 )}
+                <div ref={messagesEndRef} />
               </div>
               {/* Message input */}
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
