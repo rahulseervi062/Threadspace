@@ -20,10 +20,12 @@ async function readJsonResponse(response) {
 }
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    try { return localStorage.getItem("ts_auth") === "true"; } catch { return false; }
+  });
   const [showAccountMenu, setShowAccountMenu] = useState(false);
-  const [accountName, setAccountName] = useState("Demo User");
-  const [accountEmail, setAccountEmail] = useState("demo@site.com");
+  const [accountName, setAccountName] = useState(() => { try { return localStorage.getItem("ts_name") || "Demo User"; } catch { return "Demo User"; } });
+  const [accountEmail, setAccountEmail] = useState(() => { try { return localStorage.getItem("ts_email") || "demo@site.com"; } catch { return "demo@site.com"; } });
   const [authMode, setAuthMode] = useState("login");
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotStatus, setForgotStatus] = useState({ loading: false, type: "", message: "" });
@@ -267,6 +269,12 @@ export default function App() {
       setAccountEmail(data.user.email);
       setIsAuthenticated(true);
       setView("feed");
+      try {
+        localStorage.setItem("ts_auth", "true");
+        localStorage.setItem("ts_name", data.user.name);
+        localStorage.setItem("ts_email", data.user.email);
+        localStorage.setItem("ts_phone", data.user.phone || "");
+      } catch {}
     } catch (error) {
       setStatus({
         loading: false,
@@ -811,7 +819,8 @@ export default function App() {
               <div className="account-menu-label" style={{ marginTop: 4, fontSize: "0.75rem" }}>{accountEmail}</div>
               <div className="account-menu-actions">
                 <button type="button" onClick={() => { setShowAccountMenu(false); setView("settings"); }}>Settings</button>
-                <button type="button" onClick={() => { setShowAccountMenu(false); setIsAuthenticated(false); }}>Sign Out</button>
+                <button type="button" onClick={() => { setShowAccountMenu(false); setIsAuthenticated(false);
+                  try { localStorage.removeItem("ts_auth"); localStorage.removeItem("ts_name"); localStorage.removeItem("ts_email"); localStorage.removeItem("ts_phone"); } catch {} }}>Sign Out</button>
               </div>
             </div>
           ) : null}
