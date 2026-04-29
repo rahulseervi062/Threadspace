@@ -230,6 +230,20 @@ h1 { font-size: 1.3rem; font-weight: 700; margin-bottom: 6px; }
 .nav-link:hover { background: var(--bg-3); color: var(--text); }
 .nav-link.active { color: var(--accent); background: rgba(255,69,0,0.1); }
 
+.badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
 /* Account icon */
 .account-menu-wrap { position: relative; flex-shrink: 0; }
 

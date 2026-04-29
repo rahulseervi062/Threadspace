@@ -12,6 +12,11 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
+import {
+  normalizeEmail,
+  normalizePhoneNumber,
+  normalizeSearchValue
+} from "./utils/normalize.js";
  
  dotenv.config();
  
@@ -284,18 +289,6 @@ const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 1
  // Data is now stored in MongoDB - seeded via seedData()
 
  
- function normalizePhoneNumber(value) {
-   return String(value || "").replace(/\D/g, "");
- }
- 
-function normalizeEmail(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function normalizeSearchValue(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
 function getMessageMediaType(file) {
   if (!file?.mimetype) return null;
   if (file.mimetype === "image/gif") return "gif";
