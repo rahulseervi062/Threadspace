@@ -1568,7 +1568,7 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
 
 // Get all conversations for a user
 app.get("/api/messages", async (req, res) => {
-  const { userEmail } = req.query;
+  const userEmail = normalizeEmail(req.query.userEmail);
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required." });
 
   const messages = await Message.find({}).sort({ createdAt: 1 }).lean();
@@ -1577,10 +1577,14 @@ app.get("/api/messages", async (req, res) => {
   // Group messages into conversations
   const convMap = {};
   messages.forEach((msg) => {
-    if (msg.fromEmail !== userEmail && msg.toEmail !== userEmail) return;
-    const otherEmail = msg.fromEmail === userEmail ? msg.toEmail : msg.fromEmail;
+    const normalizedFromEmail = normalizeEmail(msg.fromEmail);
+    const normalizedToEmail = normalizeEmail(msg.toEmail);
+
+    if (normalizedFromEmail !== userEmail && normalizedToEmail !== userEmail) return;
+
+    const otherEmail = normalizedFromEmail === userEmail ? msg.toEmail : msg.fromEmail;
     if (!convMap[otherEmail]) {
-      const otherUser = users.find((u) => u.email === otherEmail);
+      const otherUser = users.find((u) => normalizeEmail(u.email) === normalizeEmail(otherEmail));
       convMap[otherEmail] = {
         otherEmail,
         otherName: otherUser?.name || otherEmail,
@@ -1590,7 +1594,7 @@ app.get("/api/messages", async (req, res) => {
       };
     }
     convMap[otherEmail].messages.push(msg);
-    if (msg.toEmail === userEmail && !msg.read) convMap[otherEmail].unread++;
+    if (normalizedToEmail === userEmail && !msg.read) convMap[otherEmail].unread++;
     if (msg.createdAt > convMap[otherEmail].lastAt) convMap[otherEmail].lastAt = msg.createdAt;
   });
 
@@ -1600,36 +1604,48 @@ app.get("/api/messages", async (req, res) => {
 
 // Get messages between two users
 app.get("/api/messages/:otherEmail", async (req, res) => {
-  const { userEmail } = req.query;
-  const otherEmail = decodeURIComponent(req.params.otherEmail);
+  const userEmail = normalizeEmail(req.query.userEmail);
+  const otherEmail = normalizeEmail(decodeURIComponent(req.params.otherEmail));
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required." });
+
+  const users = await User.find({}).lean();
+  const currentUser = users.find((u) => normalizeEmail(u.email) === userEmail);
+  const otherUser = users.find((u) => normalizeEmail(u.email) === otherEmail);
+
+  const currentEmail = currentUser?.email || userEmail;
+  const canonicalOtherEmail = otherUser?.email || otherEmail;
 
   await Message.updateMany(
     {
-      fromEmail: otherEmail,
-      toEmail: userEmail,
+      fromEmail: canonicalOtherEmail,
+      toEmail: currentEmail,
       read: false
     },
     { $set: { read: true } }
   );
 
-  const thread = await Message.find({
-    $or: [
-      { fromEmail: userEmail, toEmail: otherEmail },
-      { fromEmail: otherEmail, toEmail: userEmail }
-    ]
-  }).sort({ createdAt: 1 }).lean();
+  const thread = (await Message.find({}).sort({ createdAt: 1 }).lean()).filter((message) => {
+    const normalizedFromEmail = normalizeEmail(message.fromEmail);
+    const normalizedToEmail = normalizeEmail(message.toEmail);
 
-  const users = await User.find({}).lean();
-  const otherUser = users.find((u) => u.email === otherEmail);
+    return (
+      (normalizedFromEmail === userEmail && normalizedToEmail === otherEmail) ||
+      (normalizedFromEmail === otherEmail && normalizedToEmail === userEmail)
+    );
+  });
 
-  return res.json({ ok: true, messages: thread, otherName: otherUser?.name || otherEmail });
+  return res.json({ ok: true, messages: thread, otherName: otherUser?.name || canonicalOtherEmail });
 });
 
 // Send a message
 app.post("/api/messages", async (req, res) => {
-  const { fromEmail, toEmail, text, mediaUrl, mediaType } = req.body ?? {};
-  if (!fromEmail || !toEmail || (!text?.trim() && !mediaUrl)) {
+  const fromEmail = normalizeEmail(req.body?.fromEmail);
+  const toEmail = normalizeEmail(req.body?.toEmail);
+  const text = String(req.body?.text || "");
+  const mediaUrl = req.body?.mediaUrl;
+  const mediaType = req.body?.mediaType;
+
+  if (!fromEmail || !toEmail || (!text.trim() && !mediaUrl)) {
     return res.status(400).json({ ok: false, message: "fromEmail, toEmail and text or media are required." });
   }
 
@@ -1638,8 +1654,8 @@ app.post("/api/messages", async (req, res) => {
   }
 
   const users = await User.find({}).lean();
-  const sender = users.find((u) => u.email === fromEmail);
-  const receiver = users.find((u) => u.email === toEmail);
+  const sender = users.find((u) => normalizeEmail(u.email) === fromEmail);
+  const receiver = users.find((u) => normalizeEmail(u.email) === toEmail);
 
   if (!sender || !receiver) {
     return res.status(404).json({ ok: false, message: "User not found." });
@@ -1647,11 +1663,11 @@ app.post("/api/messages", async (req, res) => {
 
   const newMsg = {
     id: Date.now(),
-    fromEmail,
+    fromEmail: sender.email,
     fromName: sender.name,
-    toEmail,
+    toEmail: receiver.email,
     toName: receiver.name,
-    text: text ? String(text).trim() : "",
+    text: text.trim(),
     mediaUrl,
     mediaType,
     createdAt: new Date().toISOString(),

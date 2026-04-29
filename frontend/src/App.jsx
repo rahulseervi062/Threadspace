@@ -1,5 +1,5 @@
- import { useEffect, useState, useRef } from "react";
-import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
+import { useEffect, useState, useRef } from "react";
+import { io } from "socket.io-client";
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "").trim().replace(/\/$/, "");
 const MAX_MESSAGE_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -103,6 +103,7 @@ export default function App() {
   const [headerSearch, setHeaderSearch] = useState("");
   const [conversations, setConversations] = useState([]);
   const socketRef = useRef(null);
+  const activeConvRef = useRef(null);
   const messagesEndRef = useRef(null);
   const [activeConv, setActiveConv] = useState(null); // otherEmail
   const [activeConvName, setActiveConvName] = useState("");
@@ -115,6 +116,10 @@ export default function App() {
   const [mediaUploading, setMediaUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [profileUser, setProfileUser] = useState(null); // user being viewed
+
+  useEffect(() => {
+    activeConvRef.current = activeConv;
+  }, [activeConv]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -188,10 +193,6 @@ export default function App() {
         message.fromEmail === accountEmail ||
         message.toEmail === accountEmail
       ) {
-        setThreadMessages((prev) => {
-          const exists = prev.find((m) => m.id === message.id);
-          return exists ? prev : [...prev, message];
-        });
         setConversations((prev) => {
           const otherEmail =
             message.fromEmail === accountEmail ? message.toEmail : message.fromEmail;
@@ -232,6 +233,16 @@ export default function App() {
 
           return next.sort((a, b) => String(b.lastAt || "").localeCompare(String(a.lastAt || "")));
         });
+
+        const otherEmail =
+          message.fromEmail === accountEmail ? message.toEmail : message.fromEmail;
+
+        if (activeConvRef.current === otherEmail) {
+          setThreadMessages((prev) => {
+            const exists = prev.find((m) => m.id === message.id);
+            return exists ? prev : [...prev, message];
+          });
+        }
       }
     });
 
@@ -258,11 +269,13 @@ export default function App() {
     setActiveConvName(otherName);
     setView("thread");
     setMsgError("");
+    setThreadMessages([]);
     try {
       const res = await fetch(`${API_BASE}/api/messages/${encodeURIComponent(otherEmail)}?userEmail=${encodeURIComponent(accountEmail)}`);
       const data = await readJsonResponse(res);
       if (data.ok) {
         setThreadMessages(data.messages || []);
+        setActiveConvName(data.otherName || otherName);
         setConversations((prev) =>
           prev.map((conv) =>
             conv.otherEmail === otherEmail ? { ...conv, unread: 0 } : conv
@@ -357,45 +370,46 @@ export default function App() {
         })
       });
       const data = await readJsonResponse(res);
-      if (data.ok) {
-        // Immediately show your own sent message in the thread
-        setThreadMessages((prev) => {
-          const exists = prev.find((m) => m.id === data.message.id);
-          return exists ? prev : [...prev, data.message];
-        });
-        setConversations((prev) => {
-          const preview = getMessagePreview(data.message);
-          const existing = prev.find((conv) => conv.otherEmail === activeConv);
-          if (!existing) {
-            return [
-              {
-                otherEmail: activeConv,
-                otherName: activeConvName,
-                messages: [data.message],
-                lastAt: data.message.createdAt,
-                unread: 0,
-                lastMessage: preview
-              },
-              ...prev
-            ];
-          }
-
-          return prev
-            .map((conv) =>
-              conv.otherEmail === activeConv
-                ? {
-                    ...conv,
-                    otherName: activeConvName,
-                    messages: [...(conv.messages || []), data.message],
-                    lastAt: data.message.createdAt,
-                    unread: 0,
-                    lastMessage: preview
-                  }
-                : conv
-            )
-            .sort((a, b) => String(b.lastAt || "").localeCompare(String(a.lastAt || "")));
-        });
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || "Unable to send message.");
       }
+
+      setThreadMessages((prev) => {
+        const exists = prev.find((m) => m.id === data.message.id);
+        return exists ? prev : [...prev, data.message];
+      });
+      setConversations((prev) => {
+        const preview = getMessagePreview(data.message);
+        const existing = prev.find((conv) => conv.otherEmail === activeConv);
+        if (!existing) {
+          return [
+            {
+              otherEmail: activeConv,
+              otherName: activeConvName,
+              messages: [data.message],
+              lastAt: data.message.createdAt,
+              unread: 0,
+              lastMessage: preview
+            },
+            ...prev
+          ];
+        }
+
+        return prev
+          .map((conv) =>
+            conv.otherEmail === activeConv
+              ? {
+                  ...conv,
+                  otherName: activeConvName,
+                  messages: [...(conv.messages || []), data.message],
+                  lastAt: data.message.createdAt,
+                  unread: 0,
+                  lastMessage: preview
+                }
+              : conv
+          )
+          .sort((a, b) => String(b.lastAt || "").localeCompare(String(a.lastAt || "")));
+      });
     } catch (error) {
       setMsgError(error.message || "Unable to send message.");
       setMsgDraft(text);
