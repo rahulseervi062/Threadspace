@@ -101,6 +101,12 @@ export default function App() {
   const [postsLoading, setPostsLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [headerSearch, setHeaderSearch] = useState("");
+  const [searchResults, setSearchResults] = useState({
+    posts: [],
+    subreddits: [],
+    users: []
+  });
+  const [searchLoading, setSearchLoading] = useState(false);
   const [conversations, setConversations] = useState([]);
   const socketRef = useRef(null);
   const activeConvRef = useRef(null);
@@ -128,6 +134,23 @@ export default function App() {
     void searchMembers("");
     void loadConversations();
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const query = headerSearch.trim();
+    if (!query) {
+      setSearchResults({ posts: [], subreddits: [], users: [] });
+      setSearchLoading(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void runSearch(query);
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [headerSearch, isAuthenticated]);
 
   async function loadPosts() {
     setPostsLoading(true);
@@ -172,6 +195,28 @@ export default function App() {
       setMembers([]);
     } finally {
       setMembersLoading(false);
+    }
+  }
+
+  async function runSearch(query) {
+    setSearchLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
+      const data = await readJsonResponse(response);
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Search failed.");
+      }
+
+      setSearchResults({
+        posts: Array.isArray(data.results?.posts) ? data.results.posts : [],
+        subreddits: Array.isArray(data.results?.subreddits) ? data.results.subreddits : [],
+        users: Array.isArray(data.results?.users) ? data.results.users : []
+      });
+    } catch {
+      setSearchResults({ posts: [], subreddits: [], users: [] });
+    } finally {
+      setSearchLoading(false);
     }
   }
 
@@ -993,7 +1038,16 @@ export default function App() {
           <span className="header-search-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </span>
-          <input type="text" placeholder="Search Threadspace" value={headerSearch} onChange={(e) => setHeaderSearch(e.target.value)} />
+          <input
+            type="text"
+            placeholder="Search Threadspace"
+            value={headerSearch}
+            onFocus={() => setView("search")}
+            onChange={(e) => {
+              setHeaderSearch(e.target.value);
+              setView("search");
+            }}
+          />
         </div>
         <nav className="site-nav">
           <button className={view === "feed" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("feed")}>Home</button>
@@ -1488,28 +1542,55 @@ export default function App() {
                 />
               </div>
               {headerSearch.trim() ? (
-                <div className="posts-feed">
-                  {posts.filter(p =>
-                    p.caption?.toLowerCase().includes(headerSearch.toLowerCase()) ||
-                    p.subreddit?.toLowerCase().includes(headerSearch.toLowerCase())
-                  ).map(item => (
-                    <article className="feed-card" key={item.id}>
-                      <div className="post-header">
-                        <div className="post-community-avatar">{item.subreddit?.charAt(0).toUpperCase()}</div>
-                        <div className="post-meta-col">
-                          <div className="post-meta-top"><span className="community-name">r/{item.subreddit}</span></div>
-                          <div className="post-meta-bottom"><span>u/{item.authorName}</span></div>
+                searchLoading ? (
+                  <div className="search-empty">Searching...</div>
+                ) : searchResults.posts.length || searchResults.subreddits.length || searchResults.users.length ? (
+                  <div className="posts-feed">
+                    {searchResults.posts.map((item) => (
+                      <article className="feed-card" key={`post-${item.id}`}>
+                        <div className="post-header">
+                          <div className="post-community-avatar">{item.subreddit?.charAt(0).toUpperCase()}</div>
+                          <div className="post-meta-col">
+                            <div className="post-meta-top"><span className="community-name">r/{item.subreddit}</span></div>
+                            <div className="post-meta-bottom">
+                              <span style={{ cursor: "pointer", color: "var(--accent)" }} onClick={() => void openUserProfile(item.authorEmail, item.authorName)}>
+                                u/{item.authorName}
+                              </span>
+                            </div>
+                          </div>
                         </div>
+                        <p className="post-caption">{item.caption}</p>
+                        {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
+                      </article>
+                    ))}
+
+                    {searchResults.subreddits.map((item) => (
+                      <article className="community-card" key={`subreddit-${item.id}`}>
+                        <div className="community-handle">r/{item.name}</div>
+                        <h3>{item.title}</h3>
+                        <p>{item.description || "No description added yet."}</p>
+                      </article>
+                    ))}
+
+                    {searchResults.users.map((user) => (
+                      <div
+                        className="member-card"
+                        key={`user-${user.id}`}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => void openUserProfile(user.email, user.name)}
+                      >
+                        <div className="member-avatar">{user.name?.charAt(0).toUpperCase()}</div>
+                        <div style={{ flex: 1 }}>
+                          <div className="member-name">{user.name}</div>
+                          <div className="member-email">{user.email}</div>
+                        </div>
+                        <div style={{ color: "var(--accent)", fontSize: "0.8rem", fontWeight: 700 }}>Open</div>
                       </div>
-                      <p className="post-caption">{item.caption}</p>
-                      {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
-                    </article>
-                  ))}
-                  {posts.filter(p =>
-                    p.caption?.toLowerCase().includes(headerSearch.toLowerCase()) ||
-                    p.subreddit?.toLowerCase().includes(headerSearch.toLowerCase())
-                  ).length === 0 && <div className="search-empty">No results for "{headerSearch}"</div>}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="search-empty">No results for "{headerSearch}"</div>
+                )
               ) : (
                 <div className="search-empty">Type something to search...</div>
               )}
