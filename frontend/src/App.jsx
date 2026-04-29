@@ -107,6 +107,7 @@ export default function App() {
     users: []
   });
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const [conversations, setConversations] = useState([]);
   const socketRef = useRef(null);
   const activeConvRef = useRef(null);
@@ -142,6 +143,7 @@ export default function App() {
     if (!query) {
       setSearchResults({ posts: [], subreddits: [], users: [] });
       setSearchLoading(false);
+      setSearchError("");
       return;
     }
 
@@ -200,6 +202,7 @@ export default function App() {
 
   async function runSearch(query) {
     setSearchLoading(true);
+    setSearchError("");
     try {
       const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
       const data = await readJsonResponse(response);
@@ -213,8 +216,9 @@ export default function App() {
         subreddits: Array.isArray(data.results?.subreddits) ? data.results.subreddits : [],
         users: Array.isArray(data.results?.users) ? data.results.users : []
       });
-    } catch {
+    } catch (error) {
       setSearchResults({ posts: [], subreddits: [], users: [] });
+      setSearchError(getReadableError(error, "Search is unavailable right now."));
     } finally {
       setSearchLoading(false);
     }
@@ -1544,6 +1548,8 @@ export default function App() {
               {headerSearch.trim() ? (
                 searchLoading ? (
                   <div className="search-empty">Searching...</div>
+                ) : searchError ? (
+                  <div className="feedback error">{searchError}</div>
                 ) : searchResults.posts.length || searchResults.subreddits.length || searchResults.users.length ? (
                   <div className="posts-feed">
                     {searchResults.posts.map((item) => (

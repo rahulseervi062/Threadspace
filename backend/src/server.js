@@ -292,6 +292,10 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeSearchValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function getMessageMediaType(file) {
   if (!file?.mimetype) return null;
   if (file.mimetype === "image/gif") return "gif";
@@ -1013,9 +1017,9 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
    });
  });
  
- app.get("/api/search", async (req, res) => {
-   const query = String(req.query.q || "").trim().toLowerCase();
-   const type = String(req.query.type || "all").toLowerCase();
+app.get("/api/search", async (req, res) => {
+  const query = normalizeSearchValue(req.query.q);
+  const type = normalizeSearchValue(req.query.type || "all");
  
    if (!query) {
      return res.json({
@@ -1026,32 +1030,32 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
  
    const results = { posts: [], subreddits: [], users: [] };
  
-   if (type === "all" || type === "posts") {
-     const posts = await readPosts();
-     results.posts = posts.filter((post) =>
-       post.caption.toLowerCase().includes(query) ||
-       post.subreddit.toLowerCase().includes(query) ||
-       post.authorName.toLowerCase().includes(query)
-     );
-   }
- 
-   if (type === "all" || type === "subreddits") {
-     const subreddits = await Subreddit.find({}).lean();
-     results.subreddits = subreddits.filter((subreddit) =>
-       subreddit.name.toLowerCase().includes(query) ||
-       subreddit.title.toLowerCase().includes(query) ||
-       subreddit.description.toLowerCase().includes(query)
-     );
-   }
- 
-   if (type === "all" || type === "users") {
-     const users = await User.find({}).lean();
-     results.users = users.filter((user) =>
-       user.name.toLowerCase().includes(query) ||
-       user.email.toLowerCase().includes(query)
-     ).map((user) => ({
-       id: user.id,
-       name: user.name,
+  if (type === "all" || type === "posts") {
+    const posts = await readPosts();
+    results.posts = posts.filter((post) =>
+      normalizeSearchValue(post.caption).includes(query) ||
+      normalizeSearchValue(post.subreddit).includes(query) ||
+      normalizeSearchValue(post.authorName).includes(query)
+    );
+  }
+
+  if (type === "all" || type === "subreddits") {
+    const subreddits = await Subreddit.find({}).lean();
+    results.subreddits = subreddits.filter((subreddit) =>
+      normalizeSearchValue(subreddit.name).includes(query) ||
+      normalizeSearchValue(subreddit.title).includes(query) ||
+      normalizeSearchValue(subreddit.description).includes(query)
+    );
+  }
+
+  if (type === "all" || type === "users") {
+    const users = await User.find({}).lean();
+    results.users = users.filter((user) =>
+      normalizeSearchValue(user.name).includes(query) ||
+      normalizeSearchValue(user.email).includes(query)
+    ).map((user) => ({
+      id: user.id,
+      name: user.name,
        email: user.email,
        phone: user.phone || ""
      }));
