@@ -102,6 +102,14 @@ function emitNotification(targetEmail, notification) {
     ...notification
   });
 }
+
+function emitSiteUpdate(update) {
+  io.emit("site:update", {
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    ...update
+  });
+}
  // Socket.io connection handler
  io.on("connection", (socket) => {
    socket.on("join", (email) => {
@@ -790,6 +798,13 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
    await User.findOneAndUpdate({ email }, { name, phone, username, bio });
   users[userIndex] = { ...users[userIndex], name, phone, username, bio };
 
+  emitSiteUpdate({
+    entity: "user",
+    action: "updated",
+    email,
+    userId: users[userIndex].id
+  });
+
    return res.json({
      ok: true,
      user: {
@@ -899,6 +914,14 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
     message: `${currentUser.name} followed you.`,
     actorEmail: currentUser.email
    });
+   emitSiteUpdate({
+    entity: "user",
+    action: "followed",
+    email: currentUser.email,
+    targetEmail: targetUser.email,
+    userId: currentUser.id,
+    targetUserId
+   });
  
    return res.json({
      ok: true,
@@ -935,6 +958,14 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
    targetUser.followers = targetUser.followers.filter(id => id !== currentUser.id);
  
    for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
+   emitSiteUpdate({
+    entity: "user",
+    action: "unfollowed",
+    email: currentUser.email,
+    targetEmail: targetUser.email,
+    userId: currentUser.id,
+    targetUserId
+   });
  
    return res.json({
      ok: true,
@@ -978,6 +1009,12 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
  
    user.followingSubreddits.push(subredditName);
    for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
+   emitSiteUpdate({
+    entity: "subreddit",
+    action: "followed",
+    email: user.email,
+    subredditName
+   });
  
    return res.json({
      ok: true,
@@ -1012,6 +1049,12 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
    }
  
    for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
+   emitSiteUpdate({
+    entity: "subreddit",
+    action: "unfollowed",
+    email: user.email,
+    subredditName
+   });
  
    return res.json({
      ok: true,
@@ -1019,12 +1062,12 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
    });
  });
  
- app.get("/api/subreddits", (_req, res) => {
-   res.json({
-     ok: true,
-     subreddits: readSubreddits()
-   });
- });
+app.get("/api/subreddits", async (_req, res) => {
+  res.json({
+    ok: true,
+    subreddits: await readSubreddits()
+  });
+});
  
  app.post("/api/subreddits", async (req, res) => {
    const { name, title, description, rules } = req.body ?? {};
@@ -1054,11 +1097,16 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
      description: String(description || "").trim(),
      rules: String(rules || "").trim(),
      moderators: [req.body.creatorEmail || "demo@site.com"] // Add creator as mod
-   };
- 
-   await Subreddit.create(subreddit);
- 
-   return res.status(201).json({
+  };
+
+  await Subreddit.create(subreddit);
+  emitSiteUpdate({
+    entity: "subreddit",
+    action: "created",
+    subredditName: subreddit.name
+  });
+
+  return res.status(201).json({
      ok: true,
      subreddit
    });
@@ -1211,9 +1259,14 @@ app.get("/api/search", async (req, res) => {
      createdAt: new Date().toISOString()
    };
  
-   await Post.create(newPost);
- 
-   return res.status(201).json({
+  await Post.create(newPost);
+  emitSiteUpdate({
+    entity: "post",
+    action: "created",
+    postId: newPost.id
+  });
+
+  return res.status(201).json({
      ok: true,
      post: newPost
    });
@@ -1249,6 +1302,11 @@ app.get("/api/search", async (req, res) => {
   };
 
   await Post.deleteMany({}); await Post.insertMany(posts);
+  emitSiteUpdate({
+    entity: "post",
+    action: "updated",
+    postId
+  });
 
   return res.json({
     ok: true,
@@ -1327,6 +1385,11 @@ app.post("/api/posts/:id/react", async (req, res) => {
       postId
     });
   }
+  emitSiteUpdate({
+    entity: "post",
+    action: "reacted",
+    postId
+  });
  
   return res.json({
     ok: true,
@@ -1375,6 +1438,11 @@ app.post("/api/posts/:id/react", async (req, res) => {
       postId
     });
   }
+  emitSiteUpdate({
+    entity: "post",
+    action: "commented",
+    postId
+  });
  
   return res.status(201).json({
     ok: true,
@@ -1463,10 +1531,15 @@ app.post("/api/posts/:id/react", async (req, res) => {
    };
  
    posts[postIndex].comments[commentIndex].replies = posts[postIndex].comments[commentIndex].replies || [];
-   posts[postIndex].comments[commentIndex].replies.unshift(reply);
-   await Post.deleteMany({}); await Post.insertMany(posts);
+  posts[postIndex].comments[commentIndex].replies.unshift(reply);
+  await Post.deleteMany({}); await Post.insertMany(posts);
+  emitSiteUpdate({
+    entity: "post",
+    action: "replied",
+    postId
+  });
  
-   return res.status(201).json({
+  return res.status(201).json({
      ok: true,
      post: posts[postIndex]
    });
@@ -1504,10 +1577,15 @@ app.post("/api/posts/:id/react", async (req, res) => {
      });
    }
  
-   post.comments.splice(commentIndex, 1);
-   await Post.deleteMany({}); await Post.insertMany(posts);
+  post.comments.splice(commentIndex, 1);
+  await Post.deleteMany({}); await Post.insertMany(posts);
+  emitSiteUpdate({
+    entity: "post",
+    action: "commentDeleted",
+    postId
+  });
  
-   return res.json({
+  return res.json({
      ok: true,
      post
    });
@@ -1544,11 +1622,16 @@ app.post("/api/posts/:id/react", async (req, res) => {
      post.savedBy = post.savedBy.filter((email) => email !== userEmail);
    } else {
      post.savedBy = [...post.savedBy, userEmail];
-   }
+  }
  
-   await Post.deleteMany({}); await Post.insertMany(posts);
+  await Post.deleteMany({}); await Post.insertMany(posts);
+  emitSiteUpdate({
+    entity: "post",
+    action: "saved",
+    postId
+  });
  
-   return res.json({
+  return res.json({
      ok: true,
      post
    });
@@ -1574,10 +1657,15 @@ app.post("/api/posts/:id/react", async (req, res) => {
      });
    }
  
-   const [deletedPost] = posts.splice(postIndex, 1);
-   await Post.deleteMany({}); await Post.insertMany(posts);
+  const [deletedPost] = posts.splice(postIndex, 1);
+  await Post.deleteMany({}); await Post.insertMany(posts);
+  emitSiteUpdate({
+    entity: "post",
+    action: "deleted",
+    postId
+  });
  
-   return res.json({
+  return res.json({
      ok: true,
      post: deletedPost
    });
@@ -1604,10 +1692,16 @@ app.post("/api/posts/:id/react", async (req, res) => {
      return res.status(404).json({ ok: false, message: "User not found." });
    }
 
-   await User.findOneAndUpdate({ email }, { avatar });
+  await User.findOneAndUpdate({ email }, { avatar });
+  emitSiteUpdate({
+    entity: "user",
+    action: "avatarUpdated",
+    email,
+    userId: users[userIndex].id
+  });
 
-   return res.json({ ok: true, avatar });
- });
+  return res.json({ ok: true, avatar });
+});
 
  // Get user profile including avatar
 app.get("/api/account", async (req, res) => {

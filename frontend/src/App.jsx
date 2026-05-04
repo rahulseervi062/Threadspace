@@ -139,6 +139,10 @@ export default function App() {
   const [onlineEmails, setOnlineEmails] = useState([]);
   const socketRef = useRef(null);
   const activeConvRef = useRef(null);
+  const headerSearchRef = useRef("");
+  const memberSearchRef = useRef("");
+  const profileUserRef = useRef(null);
+  const accountEmailRef = useRef(accountEmail);
   const messagesEndRef = useRef(null);
   const [activeConv, setActiveConv] = useState(null); // otherEmail
   const [activeConvName, setActiveConvName] = useState("");
@@ -192,6 +196,22 @@ export default function App() {
   useEffect(() => {
     activeConvRef.current = activeConv;
   }, [activeConv]);
+
+  useEffect(() => {
+    headerSearchRef.current = headerSearch;
+  }, [headerSearch]);
+
+  useEffect(() => {
+    memberSearchRef.current = memberSearch;
+  }, [memberSearch]);
+
+  useEffect(() => {
+    profileUserRef.current = profileUser;
+  }, [profileUser]);
+
+  useEffect(() => {
+    accountEmailRef.current = accountEmail;
+  }, [accountEmail]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -353,6 +373,43 @@ export default function App() {
     }
   }
 
+  async function refreshLiveData(update) {
+    const entity = String(update?.entity || "").toLowerCase();
+
+    if (entity === "post") {
+      void loadPosts();
+      void loadTrendingPosts();
+      if (accountEmailRef.current) {
+        void loadRecommendedPosts();
+      }
+    }
+
+    if (entity === "subreddit" || entity === "user") {
+      void loadSubreddits();
+      void searchMembers(memberSearchRef.current || "");
+      if (accountEmailRef.current) {
+        const nextAccount = await loadAccountProfile(accountEmailRef.current, false);
+        if (nextAccount && normalizeEmailSafe(nextAccount.email) === normalizeEmailSafe(accountEmailRef.current)) {
+          setAccountProfile(nextAccount);
+        }
+        void loadRecommendedPosts();
+      }
+    }
+
+    const query = String(headerSearchRef.current || "").trim();
+    if (query) {
+      void runSearch(query);
+    }
+
+    const viewedEmail = normalizeEmailSafe(profileUserRef.current?.email);
+    if (viewedEmail) {
+      const nextProfile = await loadAccountProfile(viewedEmail, false);
+      if (nextProfile) {
+        setProfileUser(nextProfile);
+      }
+    }
+  }
+
   // Socket.io real-time connection
   useEffect(() => {
     if (!isAuthenticated || !accountEmail) return;
@@ -430,6 +487,10 @@ export default function App() {
 
     socket.on("notification", (notification) => {
       setNotifications((prev) => [{ ...notification, read: false }, ...prev]);
+    });
+
+    socket.on("site:update", (update) => {
+      void refreshLiveData(update);
     });
 
     return () => {
