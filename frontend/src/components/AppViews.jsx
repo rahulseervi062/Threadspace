@@ -200,6 +200,7 @@ function FeedView({
   setView,
   accountEmail,
   openUserProfile,
+  openCommunity,
   handleReaction,
   openComments,
   toggleComments,
@@ -208,15 +209,27 @@ function FeedView({
   handleDelete,
   commentErrors,
   commentDrafts,
+  replyDrafts,
   setCommentDrafts,
-  handleCommentSubmit
+  setReplyDrafts,
+  handleCommentSubmit,
+  handleReplySubmit,
+  editingPostId,
+  editPost,
+  setEditPost,
+  startEditPost,
+  cancelEditPost,
+  handleEditPostImage,
+  handleEditPostSubmit,
+  title = "Home Feed",
+  description = "Browse recent posts from your communities."
 }) {
   return (
     <div className="content-card">
       <div className="section-head">
         <div>
-          <h1>Home Feed</h1>
-          <p>Browse recent posts from your communities.</p>
+          <h1>{title}</h1>
+          <p>{description}</p>
         </div>
         <button className="post-button" type="button" onClick={() => setView("create")}>
           Create Post
@@ -235,15 +248,39 @@ function FeedView({
                 </div>
                 <div className="post-meta-col">
                   <div className="post-meta-top">
-                    <span className="community-name">r/{item.subreddit}</span>
+                    <span className="community-name" style={{ cursor: "pointer" }} onClick={() => openCommunity(item.subreddit)}>r/{item.subreddit}</span>
                   </div>
                   <div className="post-meta-bottom">
                     <span style={{ cursor: "pointer", color: "var(--accent)" }} onClick={() => void openUserProfile(item.authorEmail, item.authorName)}>u/{item.authorName}</span>
                   </div>
                 </div>
               </div>
-              <p className="post-caption">{item.caption}</p>
-              {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
+              {editingPostId === item.id ? (
+                <div className="upload-grid" style={{ marginBottom: 14 }}>
+                  <label>
+                    <span>Caption</span>
+                    <textarea value={editPost.caption} onChange={(e) => setEditPost((current) => ({ ...current, caption: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Community</span>
+                    <input value={editPost.subreddit} onChange={(e) => setEditPost((current) => ({ ...current, subreddit: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Replace Image</span>
+                    <input type="file" accept="image/*" onChange={handleEditPostImage} />
+                  </label>
+                  {editPost.imageUrl ? <img className="post-image" src={editPost.imageUrl} alt="Preview" /> : null}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button className="post-button" type="button" onClick={() => void handleEditPostSubmit(item.id)}>Save</button>
+                    <button className="action-button" type="button" onClick={cancelEditPost}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="post-caption">{item.caption}</p>
+                  {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
+                </>
+              )}
               <div className="post-actions">
                 <div className="vote-cluster">
                   <button
@@ -283,9 +320,14 @@ function FeedView({
                   Share
                 </button>
                 {item.authorEmail === accountEmail ? (
-                  <button className="action-button delete" type="button" onClick={() => void handleDelete(item.id)}>
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Z"/></svg>
-                  </button>
+                  <>
+                    <button className="action-button" type="button" onClick={() => startEditPost(item)}>
+                      Edit
+                    </button>
+                    <button className="action-button delete" type="button" onClick={() => void handleDelete(item.id)}>
+                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Z"/></svg>
+                    </button>
+                  </>
                 ) : null}
               </div>
               {openComments[item.id] ? (
@@ -314,6 +356,26 @@ function FeedView({
                         <div className="comment-item" key={comment.id}>
                           <span className="comment-author">{comment.authorName}</span>
                           <span className="comment-text">{comment.text}</span>
+                          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                            {Array.isArray(comment.replies) && comment.replies.length ? (
+                              <div style={{ display: "grid", gap: 6, paddingLeft: 16, borderLeft: "2px solid var(--border)" }}>
+                                {comment.replies.map((reply) => (
+                                  <div key={reply.id}>
+                                    <span className="comment-author">{reply.authorName}</span>
+                                    <span className="comment-text"> {reply.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <input
+                                value={replyDrafts[`${item.id}-${comment.id}`] || ""}
+                                onChange={(event) => setReplyDrafts((current) => ({ ...current, [`${item.id}-${comment.id}`]: event.target.value }))}
+                                placeholder="Write a reply"
+                              />
+                              <button type="button" onClick={() => void handleReplySubmit(item.id, comment.id)}>Reply</button>
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -371,7 +433,16 @@ function CreatePostView({ subreddits, post, handlePostSubmit, handlePostChange, 
   );
 }
 
-function SubredditsView({ subredditForm, handleCreateSubreddit, handleSubredditChange, subredditStatus, subreddits }) {
+function SubredditsView({
+  subredditForm,
+  handleCreateSubreddit,
+  handleSubredditChange,
+  subredditStatus,
+  subreddits,
+  followingSubreddits,
+  handleToggleSubredditFollow,
+  openCommunity
+}) {
   return (
     <div className="content-card">
       <div className="section-head">
@@ -401,9 +472,12 @@ function SubredditsView({ subredditForm, handleCreateSubreddit, handleSubredditC
       <div className="subreddit-cards">
         {(Array.isArray(subreddits) ? subreddits : []).map((item) => (
           <article className="community-card" key={item.id}>
-            <div className="community-handle">r/{item.name}</div>
+            <div className="community-handle" style={{ cursor: "pointer" }} onClick={() => openCommunity(item.name)}>r/{item.name}</div>
             <h3>{item.title}</h3>
             <p>{item.description || "No description added yet."}</p>
+            <button className="post-button" type="button" onClick={() => void handleToggleSubredditFollow(item.name)}>
+              {followingSubreddits?.includes(item.name) ? "Following" : "Follow"}
+            </button>
           </article>
         ))}
       </div>
@@ -411,13 +485,23 @@ function SubredditsView({ subredditForm, handleCreateSubreddit, handleSubredditC
   );
 }
 
-function SettingsView({ accountName, accountEmail, onSignOut }) {
+function SettingsView({
+  accountName,
+  accountEmail,
+  onSignOut,
+  profileForm,
+  setProfileForm,
+  handleProfileSave,
+  handleAvatarUpload,
+  profileStatus,
+  accountProfile
+}) {
   return (
     <div className="content-card">
       <div className="section-head">
         <div>
           <h1>Settings</h1>
-          <p>View your current account information.</p>
+          <p>Update your account information and profile.</p>
         </div>
       </div>
       <div className="subreddit-cards">
@@ -432,6 +516,33 @@ function SettingsView({ accountName, accountEmail, onSignOut }) {
           <p>Your login email for Threadspace.</p>
         </article>
       </div>
+      <form className="settings-grid" onSubmit={handleProfileSave} style={{ display: "grid", gap: 14, marginTop: 18 }}>
+        <label>
+          <span>Name</span>
+          <input value={profileForm.name} onChange={(e) => setProfileForm((current) => ({ ...current, name: e.target.value }))} />
+        </label>
+        <label>
+          <span>Username</span>
+          <input value={profileForm.username} onChange={(e) => setProfileForm((current) => ({ ...current, username: e.target.value }))} />
+        </label>
+        <label>
+          <span>Phone</span>
+          <input value={profileForm.phone} onChange={(e) => setProfileForm((current) => ({ ...current, phone: e.target.value }))} />
+        </label>
+        <label>
+          <span>Bio</span>
+          <textarea value={profileForm.bio} onChange={(e) => setProfileForm((current) => ({ ...current, bio: e.target.value }))} />
+        </label>
+        <label>
+          <span>Avatar</span>
+          {accountProfile.avatar ? <img src={accountProfile.avatar} alt="avatar" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", marginBottom: 8 }} /> : null}
+          <input type="file" accept="image/*" onChange={handleAvatarUpload} />
+        </label>
+        <button className="post-button" type="submit" disabled={profileStatus.loading}>
+          {profileStatus.loading ? "Saving..." : "Save Profile"}
+        </button>
+        {profileStatus.message ? <div className={`feedback ${profileStatus.type}`}>{profileStatus.message}</div> : null}
+      </form>
       <div style={{ marginTop: 18 }}>
         <button className="post-button" type="button" onClick={onSignOut}>
           Sign Out

@@ -69,6 +69,10 @@ function getReadableError(error, fallbackMessage) {
   return message;
 }
 
+function normalizeEmailSafe(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     try { return localStorage.getItem("ts_auth") === "true"; } catch { return false; }
@@ -95,13 +99,19 @@ export default function App() {
     title: "",
     description: ""
   });
+  const [selectedCommunity, setSelectedCommunity] = useState("");
   const [posts, setPosts] = useState([]);
+  const [trendingPosts, setTrendingPosts] = useState([]);
+  const [recommendedPosts, setRecommendedPosts] = useState([]);
   const [subreddits, setSubreddits] = useState([]);
   const [memberSearch, setMemberSearch] = useState("");
   const [members, setMembers] = useState([]);
   const [commentDrafts, setCommentDrafts] = useState({});
+  const [replyDrafts, setReplyDrafts] = useState({});
   const [commentErrors, setCommentErrors] = useState({});
   const [openComments, setOpenComments] = useState({});
+  const [editingPostId, setEditingPostId] = useState(null);
+  const [editPost, setEditPost] = useState({ caption: "", subreddit: "", imageUrl: "" });
   const [status, setStatus] = useState({ loading: false, type: "", message: "" });
   const [postStatus, setPostStatus] = useState({
     loading: false,
@@ -124,6 +134,9 @@ export default function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [conversations, setConversations] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [onlineEmails, setOnlineEmails] = useState([]);
   const socketRef = useRef(null);
   const activeConvRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -138,7 +151,29 @@ export default function App() {
   const [mediaUploading, setMediaUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [profileUser, setProfileUser] = useState(null); // user being viewed
+  const [accountProfile, setAccountProfile] = useState({
+    id: 0,
+    name: "",
+    username: "",
+    email: "",
+    phone: "",
+    avatar: "",
+    bio: "",
+    karma: 0,
+    following: [],
+    followers: [],
+    followingSubreddits: [],
+    online: false
+  });
+  const [profileForm, setProfileForm] = useState({
+    name: "",
+    username: "",
+    phone: "",
+    bio: ""
+  });
+  const [profileStatus, setProfileStatus] = useState({ loading: false, type: "", message: "" });
   const unreadConversationCount = conversations.filter((conv) => Number(conv?.unread || 0) > 0).length;
+  const unreadNotificationsCount = notifications.filter((item) => !item.read).length;
 
   function signOut() {
     setShowAccountMenu(false);
@@ -150,6 +185,8 @@ export default function App() {
       localStorage.removeItem("ts_email");
       localStorage.removeItem("ts_phone");
     } catch {}
+    setNotifications([]);
+    setOnlineEmails([]);
   }
 
   useEffect(() => {
@@ -160,8 +197,12 @@ export default function App() {
     if (!isAuthenticated) return;
     void loadSubreddits();
     void loadPosts();
+    void loadTrendingPosts();
+    void loadRecommendedPosts();
     void searchMembers("");
     void loadConversations();
+    void loadAccountProfile(accountEmail, true);
+    void loadPresence();
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -192,6 +233,66 @@ export default function App() {
       setPostStatus({ loading: false, type: "error", message: "Could not load posts." });
     } finally {
       setPostsLoading(false);
+    }
+  }
+
+  async function loadTrendingPosts() {
+    try {
+      const response = await fetch(`${API_BASE}/api/posts/trending`);
+      const data = await readJsonResponse(response);
+      if (response.ok) setTrendingPosts(Array.isArray(data.posts) ? data.posts : []);
+    } catch {
+      setTrendingPosts([]);
+    }
+  }
+
+  async function loadRecommendedPosts() {
+    if (!accountEmail) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/posts/recommended?userEmail=${encodeURIComponent(accountEmail)}`);
+      const data = await readJsonResponse(response);
+      if (response.ok) setRecommendedPosts(Array.isArray(data.posts) ? data.posts : []);
+    } catch {
+      setRecommendedPosts([]);
+    }
+  }
+
+  async function loadAccountProfile(email = accountEmail, syncDraft = false) {
+    if (!email) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/account?email=${encodeURIComponent(email)}`);
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Unable to load account.");
+      }
+
+      if (normalizeEmailSafe(email) === normalizeEmailSafe(accountEmail)) {
+        setAccountProfile(data.user || {});
+        if (syncDraft) {
+          setProfileForm({
+            name: data.user?.name || "",
+            username: data.user?.username || "",
+            phone: data.user?.phone || "",
+            bio: data.user?.bio || ""
+          });
+        }
+      }
+
+      return data.user;
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadPresence() {
+    try {
+      const response = await fetch(`${API_BASE}/api/presence`);
+      const data = await readJsonResponse(response);
+      if (response.ok && data.ok) {
+        setOnlineEmails(Array.isArray(data.onlineEmails) ? data.onlineEmails : []);
+      }
+    } catch {
+      setOnlineEmails([]);
     }
   }
 
@@ -321,6 +422,14 @@ export default function App() {
           });
         }
       }
+    });
+
+    socket.on("presence:update", (payload) => {
+      setOnlineEmails(Array.isArray(payload?.onlineEmails) ? payload.onlineEmails : []);
+    });
+
+    socket.on("notification", (notification) => {
+      setNotifications((prev) => [{ ...notification, read: false }, ...prev]);
     });
 
     return () => {
@@ -501,8 +610,161 @@ export default function App() {
   }, [mediaPreview]);
 
   async function openUserProfile(userEmail, userName) {
-    setProfileUser({ email: userEmail, name: userName });
+    const fullProfile = await loadAccountProfile(userEmail, false);
+    setProfileUser(fullProfile || { email: userEmail, name: userName });
     setView("profile");
+  }
+
+  function markNotificationsRead() {
+    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+  }
+
+  function openPost(postId) {
+    setView("feed");
+    window.setTimeout(() => {
+      document.getElementById(`post-${postId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
+  function openCommunity(subredditName) {
+    setSelectedCommunity(subredditName);
+    setView("feed");
+  }
+
+  async function handleProfileSave(event) {
+    event?.preventDefault?.();
+    setProfileStatus({ loading: true, type: "", message: "" });
+    try {
+      const response = await fetch(`${API_BASE}/api/account`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: accountEmail,
+          name: profileForm.name,
+          username: profileForm.username,
+          phone: profileForm.phone,
+          bio: profileForm.bio
+        })
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Unable to update profile.");
+      }
+
+      setAccountName(data.user.name);
+      setAccountProfile((current) => ({ ...current, ...data.user }));
+      setProfileUser((current) =>
+        current && normalizeEmailSafe(current.email) === normalizeEmailSafe(accountEmail)
+          ? { ...current, ...data.user }
+          : current
+      );
+      try {
+        localStorage.setItem("ts_name", data.user.name);
+      } catch {}
+      setProfileStatus({ loading: false, type: "success", message: "Profile updated." });
+    } catch (error) {
+      setProfileStatus({ loading: false, type: "error", message: getReadableError(error, "Unable to update profile.") });
+    }
+  }
+
+  async function handleAvatarUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/account/avatar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: accountEmail,
+            avatar: String(reader.result || "")
+          })
+        });
+        const data = await readJsonResponse(response);
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || "Unable to upload avatar.");
+        }
+
+        setAccountProfile((current) => ({ ...current, avatar: data.avatar }));
+        setProfileUser((current) =>
+          current && normalizeEmailSafe(current.email) === normalizeEmailSafe(accountEmail)
+            ? { ...current, avatar: data.avatar }
+            : current
+        );
+        setProfileStatus({ loading: false, type: "success", message: "Avatar updated." });
+      } catch (error) {
+        setProfileStatus({ loading: false, type: "error", message: getReadableError(error, "Unable to upload avatar.") });
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleToggleUserFollow(targetUser) {
+    if (!targetUser?.id || normalizeEmailSafe(targetUser.email) === normalizeEmailSafe(accountEmail)) return;
+    const isFollowing = (accountProfile.following || []).includes(targetUser.id);
+    const endpoint = `${API_BASE}/api/users/${targetUser.id}/follow${isFollowing ? `?userEmail=${encodeURIComponent(accountEmail)}` : ""}`;
+    const method = isFollowing ? "DELETE" : "POST";
+
+    try {
+      const response = await fetch(endpoint, {
+        method,
+        headers: isFollowing ? {} : { "Content-Type": "application/json" },
+        body: isFollowing ? undefined : JSON.stringify({ userEmail: accountEmail })
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Unable to update follow status.");
+      }
+
+      const nextFollowing = isFollowing
+        ? (accountProfile.following || []).filter((id) => id !== targetUser.id)
+        : [...(accountProfile.following || []), targetUser.id];
+      setAccountProfile((current) => ({ ...current, following: nextFollowing }));
+      setProfileUser((current) =>
+        current && current.id === targetUser.id
+          ? {
+              ...current,
+              followers: isFollowing
+                ? (current.followers || []).filter((id) => id !== accountProfile.id)
+                : [...(current.followers || []), accountProfile.id]
+            }
+          : current
+      );
+      void loadRecommendedPosts();
+    } catch (error) {
+      setPostStatus({ loading: false, type: "error", message: getReadableError(error, "Unable to update follow status.") });
+    }
+  }
+
+  async function handleToggleSubredditFollow(subredditName) {
+    const isFollowing = (accountProfile.followingSubreddits || []).includes(subredditName);
+    const endpoint = `${API_BASE}/api/subreddits/${encodeURIComponent(subredditName)}/follow${isFollowing ? `?userEmail=${encodeURIComponent(accountEmail)}` : ""}`;
+    const method = isFollowing ? "DELETE" : "POST";
+
+    try {
+      const response = await fetch(endpoint, {
+        method,
+        headers: isFollowing ? {} : { "Content-Type": "application/json" },
+        body: isFollowing ? undefined : JSON.stringify({ userEmail: accountEmail })
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Unable to update community follow.");
+      }
+
+      const nextFollowing = isFollowing
+        ? (accountProfile.followingSubreddits || []).filter((name) => name !== subredditName)
+        : [...(accountProfile.followingSubreddits || []), subredditName];
+      setAccountProfile((current) => ({ ...current, followingSubreddits: nextFollowing }));
+      if (selectedCommunity && isFollowing && selectedCommunity === subredditName) {
+        setSelectedCommunity("");
+      }
+      void loadRecommendedPosts();
+    } catch (error) {
+      setSubredditStatus({ loading: false, type: "error", message: getReadableError(error, "Unable to update community follow.") });
+    }
   }
 
 
@@ -818,6 +1080,70 @@ export default function App() {
     }
   }
 
+  function handleEditPostImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditPost((current) => ({ ...current, imageUrl: String(reader.result || "") }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleEditPostSubmit(postId) {
+    try {
+      const response = await fetch(`${API_BASE}/api/posts/${postId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caption: editPost.caption,
+          subreddit: editPost.subreddit,
+          imageUrl: editPost.imageUrl,
+          userEmail: accountEmail
+        })
+      });
+
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Unable to update post.");
+      }
+
+      setPosts((current) => current.map((item) => (item.id === postId ? data.post : item)));
+      cancelEditPost();
+      setPostStatus({ loading: false, type: "success", message: "Post updated successfully." });
+    } catch (error) {
+      setPostStatus({ loading: false, type: "error", message: getReadableError(error, "Unable to update post.") });
+    }
+  }
+
+  async function handleReplySubmit(postId, commentId) {
+    const key = `${postId}-${commentId}`;
+    const text = String(replyDrafts[key] || "").trim();
+    if (!text) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/posts/${postId}/comments/${commentId}/replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          authorName: accountName,
+          authorEmail: accountEmail
+        })
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Unable to add reply.");
+      }
+
+      setPosts((current) => current.map((item) => (item.id === postId ? data.post : item)));
+      setReplyDrafts((current) => ({ ...current, [key]: "" }));
+    } catch (error) {
+      setCommentErrors((prev) => ({ ...prev, [postId]: getReadableError(error, "Unable to add reply.") }));
+    }
+  }
+
   async function handleShare(postId) {
     const shareUrl = `${window.location.origin}${window.location.pathname}#post-${postId}`;
 
@@ -881,6 +1207,28 @@ export default function App() {
     }));
   }
 
+  function startEditPost(postItem) {
+    setEditingPostId(postItem.id);
+    setEditPost({
+      caption: postItem.caption || "",
+      subreddit: postItem.subreddit || "",
+      imageUrl: postItem.imageUrl || ""
+    });
+  }
+
+  function cancelEditPost() {
+    setEditingPostId(null);
+    setEditPost({ caption: "", subreddit: "", imageUrl: "" });
+  }
+
+  const filteredFeedPosts = selectedCommunity
+    ? posts.filter((item) => item.subreddit === selectedCommunity)
+    : posts;
+  const savedPosts = posts.filter((item) => item.savedBy?.includes(accountEmail));
+  const isOtherOnline = activeConv ? onlineEmails.includes(normalizeEmailSafe(activeConv)) : false;
+  const isOwnProfile = Boolean(profileUser?.email) && normalizeEmailSafe(profileUser.email) === normalizeEmailSafe(accountEmail);
+  const isFollowingProfileUser = Boolean(profileUser?.id) && (accountProfile.following || []).includes(profileUser.id);
+
   if (resetToken && !isAuthenticated) {
     return (
       <ResetPasswordView
@@ -934,9 +1282,29 @@ export default function App() {
         </div>
         <nav className="site-nav">
           <button className={view === "feed" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("feed")}>Home</button>
+          <button className={view === "saved" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("saved")}>Saved</button>
+          <button className={view === "trending" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("trending")}>Trending</button>
+          <button className={view === "recommended" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("recommended")}>For You</button>
           <button className={view === "create" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("create")}>Post</button>
           <button className={view === "subreddits" ? "nav-link active" : "nav-link"} type="button" onClick={() => setView("subreddits")}>Communities</button>
         </nav>
+        <div className="account-menu-wrap">
+          <button className="account-icon" type="button" onClick={() => { setShowNotifications((current) => !current); markNotificationsRead(); }}>
+            N
+            {unreadNotificationsCount ? <span className="badge">{unreadNotificationsCount}</span> : null}
+          </button>
+          {showNotifications ? (
+            <div className="account-menu" style={{ right: 0, top: 44, minWidth: 280 }}>
+              <div className="account-menu-label">Notifications</div>
+              {notifications.length ? notifications.map((item) => (
+                <div key={item.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 10 }}>
+                  <div className="account-menu-value" style={{ fontSize: "0.9rem" }}>{item.title}</div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.82rem" }}>{item.message}</div>
+                </div>
+              )) : <div style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: 8 }}>No notifications yet.</div>}
+            </div>
+          ) : null}
+        </div>
         <div className="account-menu-wrap">
           <button className="account-icon" type="button" onClick={() => setShowAccountMenu((v) => !v)}>
             {accountName.charAt(0)}
@@ -989,9 +1357,9 @@ export default function App() {
               {(Array.isArray(subreddits) ? subreddits : []).map((item) => (
                 <button
                   key={item.id}
-                  className={post.subreddit === item.name ? "subreddit-pill active" : "subreddit-pill"}
+                  className={selectedCommunity === item.name ? "subreddit-pill active" : "subreddit-pill"}
                   type="button"
-                  onClick={() => setPost((current) => ({ ...current, subreddit: item.name }))}
+                  onClick={() => { setSelectedCommunity((current) => current === item.name ? "" : item.name); setView("feed"); }}
                 >
                   r/{item.name}
                 </button>
@@ -1004,11 +1372,12 @@ export default function App() {
           {view === "feed" ? (
             <FeedView
               postsLoading={postsLoading}
-              posts={posts}
+              posts={filteredFeedPosts}
               postStatus={postStatus}
               setView={setView}
               accountEmail={accountEmail}
               openUserProfile={openUserProfile}
+              openCommunity={openCommunity}
               handleReaction={handleReaction}
               openComments={openComments}
               toggleComments={toggleComments}
@@ -1017,8 +1386,122 @@ export default function App() {
               handleDelete={handleDelete}
               commentErrors={commentErrors}
               commentDrafts={commentDrafts}
+              replyDrafts={replyDrafts}
               setCommentDrafts={setCommentDrafts}
+              setReplyDrafts={setReplyDrafts}
               handleCommentSubmit={handleCommentSubmit}
+              handleReplySubmit={handleReplySubmit}
+              editingPostId={editingPostId}
+              editPost={editPost}
+              setEditPost={setEditPost}
+              startEditPost={startEditPost}
+              cancelEditPost={cancelEditPost}
+              handleEditPostImage={handleEditPostImage}
+              handleEditPostSubmit={handleEditPostSubmit}
+              title={selectedCommunity ? `r/${selectedCommunity}` : "Home Feed"}
+              description={selectedCommunity ? `Posts from r/${selectedCommunity}.` : "Browse recent posts from your communities."}
+            />
+          ) : null}
+
+          {view === "saved" ? (
+            <FeedView
+              postsLoading={postsLoading}
+              posts={savedPosts}
+              postStatus={postStatus}
+              setView={setView}
+              accountEmail={accountEmail}
+              openUserProfile={openUserProfile}
+              openCommunity={openCommunity}
+              handleReaction={handleReaction}
+              openComments={openComments}
+              toggleComments={toggleComments}
+              handleSave={handleSave}
+              handleShare={handleShare}
+              handleDelete={handleDelete}
+              commentErrors={commentErrors}
+              commentDrafts={commentDrafts}
+              replyDrafts={replyDrafts}
+              setCommentDrafts={setCommentDrafts}
+              setReplyDrafts={setReplyDrafts}
+              handleCommentSubmit={handleCommentSubmit}
+              handleReplySubmit={handleReplySubmit}
+              editingPostId={editingPostId}
+              editPost={editPost}
+              setEditPost={setEditPost}
+              startEditPost={startEditPost}
+              cancelEditPost={cancelEditPost}
+              handleEditPostImage={handleEditPostImage}
+              handleEditPostSubmit={handleEditPostSubmit}
+              title="Saved Posts"
+              description="All the posts you have bookmarked."
+            />
+          ) : null}
+
+          {view === "trending" ? (
+            <FeedView
+              postsLoading={postsLoading}
+              posts={trendingPosts}
+              postStatus={postStatus}
+              setView={setView}
+              accountEmail={accountEmail}
+              openUserProfile={openUserProfile}
+              openCommunity={openCommunity}
+              handleReaction={handleReaction}
+              openComments={openComments}
+              toggleComments={toggleComments}
+              handleSave={handleSave}
+              handleShare={handleShare}
+              handleDelete={handleDelete}
+              commentErrors={commentErrors}
+              commentDrafts={commentDrafts}
+              replyDrafts={replyDrafts}
+              setCommentDrafts={setCommentDrafts}
+              setReplyDrafts={setReplyDrafts}
+              handleCommentSubmit={handleCommentSubmit}
+              handleReplySubmit={handleReplySubmit}
+              editingPostId={editingPostId}
+              editPost={editPost}
+              setEditPost={setEditPost}
+              startEditPost={startEditPost}
+              cancelEditPost={cancelEditPost}
+              handleEditPostImage={handleEditPostImage}
+              handleEditPostSubmit={handleEditPostSubmit}
+              title="Trending"
+              description="Popular posts from the last 24 hours."
+            />
+          ) : null}
+
+          {view === "recommended" ? (
+            <FeedView
+              postsLoading={postsLoading}
+              posts={recommendedPosts}
+              postStatus={postStatus}
+              setView={setView}
+              accountEmail={accountEmail}
+              openUserProfile={openUserProfile}
+              openCommunity={openCommunity}
+              handleReaction={handleReaction}
+              openComments={openComments}
+              toggleComments={toggleComments}
+              handleSave={handleSave}
+              handleShare={handleShare}
+              handleDelete={handleDelete}
+              commentErrors={commentErrors}
+              commentDrafts={commentDrafts}
+              replyDrafts={replyDrafts}
+              setCommentDrafts={setCommentDrafts}
+              setReplyDrafts={setReplyDrafts}
+              handleCommentSubmit={handleCommentSubmit}
+              handleReplySubmit={handleReplySubmit}
+              editingPostId={editingPostId}
+              editPost={editPost}
+              setEditPost={setEditPost}
+              startEditPost={startEditPost}
+              cancelEditPost={cancelEditPost}
+              handleEditPostImage={handleEditPostImage}
+              handleEditPostSubmit={handleEditPostSubmit}
+              title="Recommended"
+              description="Posts based on the people and communities you follow."
             />
           ) : null}
 
@@ -1040,6 +1523,9 @@ export default function App() {
               handleSubredditChange={handleSubredditChange}
               subredditStatus={subredditStatus}
               subreddits={subreddits}
+              followingSubreddits={accountProfile.followingSubreddits || []}
+              handleToggleSubredditFollow={handleToggleSubredditFollow}
+              openCommunity={openCommunity}
             />
           ) : null}
 
@@ -1048,6 +1534,12 @@ export default function App() {
               accountName={accountName}
               accountEmail={accountEmail}
               onSignOut={signOut}
+              profileForm={profileForm}
+              setProfileForm={setProfileForm}
+              handleProfileSave={handleProfileSave}
+              handleAvatarUpload={handleAvatarUpload}
+              profileStatus={profileStatus}
+              accountProfile={accountProfile}
             />
           ) : null}
 
@@ -1079,6 +1571,7 @@ export default function App() {
               msgDraft={msgDraft}
               setMsgDraft={setMsgDraft}
               sendMessage={sendMessage}
+              isOtherOnline={isOtherOnline}
             />
           ) : null}
 
@@ -1088,6 +1581,10 @@ export default function App() {
               accountEmail={accountEmail}
               setView={setView}
               openConversation={openConversation}
+              isOwnProfile={isOwnProfile}
+              isFollowing={isFollowingProfileUser}
+              handleToggleUserFollow={handleToggleUserFollow}
+              isOnline={Boolean(profileUser?.email) && onlineEmails.includes(normalizeEmailSafe(profileUser.email))}
             />
           ) : null}
 
@@ -1099,6 +1596,8 @@ export default function App() {
               searchError={searchError}
               searchResults={searchResults}
               openUserProfile={openUserProfile}
+              openPost={openPost}
+              openCommunity={openCommunity}
             />
           ) : null}
         </section>

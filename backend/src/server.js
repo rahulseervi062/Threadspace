@@ -1257,7 +1257,7 @@ app.get("/api/search", async (req, res) => {
 });
 
  
- app.post("/api/posts/:id/react", async (req, res) => {
+app.post("/api/posts/:id/react", async (req, res) => {
    const postId = Number(req.params.id);
    const { reaction, userEmail } = req.body ?? {};
  
@@ -1314,13 +1314,22 @@ app.get("/api/search", async (req, res) => {
      for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
    }
  
-   await Post.deleteMany({}); await Post.insertMany(posts);
+  await Post.deleteMany({}); await Post.insertMany(posts);
+
+  // Emit socket event for real-time updates
+  io.emit('postReaction', { postId, post, userEmail, reaction });
+  if (normalizeEmail(post.authorEmail) !== normalizeEmail(userEmail)) {
+    emitNotification(post.authorEmail, {
+      type: "reaction",
+      title: reaction === "like" ? "New like" : "New dislike",
+      message: `${userEmail} reacted to your post.`,
+      actorEmail: userEmail,
+      postId
+    });
+  }
  
-   // Emit socket event for real-time updates
-   io.emit('postReaction', { postId, post, userEmail, reaction });
- 
-   return res.json({
-     ok: true,
+  return res.json({
+    ok: true,
      post
    });
  });
@@ -1354,11 +1363,21 @@ app.get("/api/search", async (req, res) => {
      createdAt: new Date().toISOString()
    };
  
-   posts[postIndex].comments.unshift(comment);
-   await Post.deleteMany({}); await Post.insertMany(posts);
+  posts[postIndex].comments.unshift(comment);
+  await Post.deleteMany({}); await Post.insertMany(posts);
+
+  if (normalizeEmail(posts[postIndex].authorEmail) !== normalizeEmail(authorEmail)) {
+    emitNotification(posts[postIndex].authorEmail, {
+      type: "comment",
+      title: "New comment",
+      message: `${authorName} commented on your post.`,
+      actorEmail: authorEmail || "",
+      postId
+    });
+  }
  
-   return res.status(201).json({
-     ok: true,
+  return res.status(201).json({
+    ok: true,
      post: posts[postIndex]
    });
  });

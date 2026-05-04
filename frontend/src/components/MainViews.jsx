@@ -53,7 +53,8 @@ function ThreadView({
   mediaUploading,
   msgDraft,
   setMsgDraft,
-  sendMessage
+  sendMessage,
+  isOtherOnline
 }) {
   return (
     <div className="content-card" style={{ display: "flex", flexDirection: "column", minHeight: "80vh" }}>
@@ -70,8 +71,8 @@ function ThreadView({
             {activeConvName}
           </span>
           <span style={{ fontSize: "11px", color: "#22c55e", display: "flex", alignItems: "center", gap: 4, marginLeft: 36 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", display: "inline-block" }} />
-            Online
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: isOtherOnline ? "#22c55e" : "#9ca3af", display: "inline-block" }} />
+            {isOtherOnline ? "Online" : "Offline"}
           </span>
         </h1>
       </div>
@@ -199,7 +200,16 @@ function ThreadView({
   );
 }
 
-function ProfileView({ profileUser, accountEmail, setView, openConversation }) {
+function ProfileView({
+  profileUser,
+  accountEmail,
+  setView,
+  openConversation,
+  isOwnProfile,
+  isFollowing,
+  handleToggleUserFollow,
+  isOnline
+}) {
   return (
     <div className="content-card">
       <div className="section-head" style={{ marginBottom: 14 }}>
@@ -209,10 +219,26 @@ function ProfileView({ profileUser, accountEmail, setView, openConversation }) {
         </button>
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "20px 0" }}>
-        <div className="member-avatar" style={{ width: 72, height: 72, fontSize: "2rem" }}>{profileUser.name?.charAt(0).toUpperCase()}</div>
+        {profileUser.avatar ? (
+          <img src={profileUser.avatar} alt={profileUser.name} style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover" }} />
+        ) : (
+          <div className="member-avatar" style={{ width: 72, height: 72, fontSize: "2rem" }}>{profileUser.name?.charAt(0).toUpperCase()}</div>
+        )}
         <div style={{ fontSize: "1.2rem", fontWeight: 700 }}>{profileUser.name}</div>
+        {profileUser.username ? <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>@{profileUser.username}</div> : null}
         <div style={{ color: "var(--muted)", fontSize: "0.88rem" }}>{profileUser.email}</div>
-        {profileUser.email !== accountEmail ? (
+        {profileUser.bio ? <div style={{ color: "var(--muted)", fontSize: "0.9rem", maxWidth: 460, textAlign: "center" }}>{profileUser.bio}</div> : null}
+        <div style={{ display: "flex", gap: 14, color: "var(--muted)", fontSize: "0.85rem" }}>
+          <span>{(profileUser.followers || []).length} followers</span>
+          <span>{(profileUser.following || []).length} following</span>
+          <span>{isOnline ? "Online" : "Offline"}</span>
+        </div>
+        {!isOwnProfile ? (
+          <button className="post-button" type="button" onClick={() => void handleToggleUserFollow(profileUser)}>
+            {isFollowing ? "Following" : "Follow"}
+          </button>
+        ) : null}
+        {!isOwnProfile ? (
           <button
             className="post-button"
             type="button"
@@ -228,7 +254,7 @@ function ProfileView({ profileUser, accountEmail, setView, openConversation }) {
   );
 }
 
-function SearchView({ headerSearch, setHeaderSearch, searchLoading, searchError, searchResults, openUserProfile }) {
+function SearchView({ headerSearch, setHeaderSearch, searchLoading, searchError, searchResults, openUserProfile, openPost, openCommunity }) {
   const hasPosts = searchResults.posts.length > 0;
   const hasSubreddits = searchResults.subreddits.length > 0;
   const hasUsers = searchResults.users.length > 0;
@@ -258,11 +284,11 @@ function SearchView({ headerSearch, setHeaderSearch, searchLoading, searchError,
               <>
                 <div className="rail-title">Posts</div>
                 {searchResults.posts.map((item) => (
-                  <article className="feed-card" key={`post-${item.id}`}>
+                  <article className="feed-card" key={`post-${item.id}`} onClick={() => openPost(item.id)} style={{ cursor: "pointer" }}>
                     <div className="post-header">
                       <div className="post-community-avatar">{item.subreddit?.charAt(0).toUpperCase()}</div>
                       <div className="post-meta-col">
-                        <div className="post-meta-top"><span className="community-name">r/{item.subreddit}</span></div>
+                        <div className="post-meta-top"><span className="community-name" onClick={(event) => { event.stopPropagation(); openCommunity(item.subreddit); }}>r/{item.subreddit}</span></div>
                         <div className="post-meta-bottom">
                           <span style={{ cursor: "pointer", color: "var(--accent)" }} onClick={() => void openUserProfile(item.authorEmail, item.authorName)}>
                             u/{item.authorName}
@@ -281,7 +307,7 @@ function SearchView({ headerSearch, setHeaderSearch, searchLoading, searchError,
               <>
                 <div className="rail-title">Communities</div>
                 {searchResults.subreddits.map((item) => (
-                  <article className="community-card" key={`subreddit-${item.id}`}>
+                  <article className="community-card" key={`subreddit-${item.id}`} onClick={() => openCommunity(item.name)} style={{ cursor: "pointer" }}>
                     <div className="community-handle">r/{item.name}</div>
                     <h3>{item.title}</h3>
                     <p>{item.description || "No description added yet."}</p>
