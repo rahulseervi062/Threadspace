@@ -87,12 +87,29 @@ const corsOptions = {
 const io = new Server(server, {
   cors: corsOptions
  });
+
+function emitPresenceUpdate() {
+  io.emit("presence:update", {
+    onlineEmails: Array.from(onlineUsers.keys())
+  });
+}
+
+function emitNotification(targetEmail, notification) {
+  if (!targetEmail) return;
+  io.to(targetEmail).emit("notification", {
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    ...notification
+  });
+}
  // Socket.io connection handler
  io.on("connection", (socket) => {
    socket.on("join", (email) => {
      if (email) {
-       onlineUsers.set(email, socket.id);
-       socket.join(email);
+       const normalizedEmail = normalizeEmail(email);
+       onlineUsers.set(normalizedEmail, socket.id);
+       socket.join(normalizedEmail);
+       emitPresenceUpdate();
      }
    });
 
@@ -106,6 +123,7 @@ const io = new Server(server, {
      for (const [email, id] of onlineUsers.entries()) {
        if (id === socket.id) {
          onlineUsers.delete(email);
+         emitPresenceUpdate();
          break;
        }
      }
@@ -138,10 +156,12 @@ mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/threadspa
 const userSchema = new mongoose.Schema({
   id: Number,
   name: String,
+  username: String,
   email: { type: String, unique: true },
   phone: String,
   password: String,
   avatar: String,
+  bio: String,
   createdAt: String,
   following: [Number],
   followers: [Number],
@@ -242,9 +262,11 @@ async function seedData() {
     await User.create({
       id: 1,
       name: "Demo User",
+      username: "demouser",
       email: demoEmail,
       phone: demoPhone,
       password: demoPassword,
+      bio: "Welcome to Threadspace.",
       createdAt: new Date().toISOString(),
       following: [],
       followers: [],
@@ -342,6 +364,13 @@ app.use(
  
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "login-api" });
+});
+
+app.get("/api/presence", (_req, res) => {
+  res.json({
+    ok: true,
+    onlineEmails: Array.from(onlineUsers.keys())
+  });
 });
 
 app.post("/api/uploads/message-media", upload.single("file"), async (req, res) => {
@@ -722,11 +751,13 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
  });
  
  app.patch("/api/account", async (req, res) => {
-   const email = normalizeEmail(req.body?.email);
-   const name = String(req.body?.name || "").trim();
-   const phone = normalizePhoneNumber(req.body?.phone);
- 
-   if (!email || !name || !phone) {
+  const email = normalizeEmail(req.body?.email);
+  const name = String(req.body?.name || "").trim();
+  const phone = normalizePhoneNumber(req.body?.phone);
+  const username = String(req.body?.username || "").trim().replace(/\s+/g, "");
+  const bio = String(req.body?.bio || "").trim();
+
+  if (!email || !name || !phone) {
      return res.status(400).json({
        ok: false,
        message: "Email, name, and mobile number are required."
@@ -736,22 +767,38 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
    const users = await User.find({}).lean();
    const userIndex = users.findIndex((item) => normalizeEmail(item.email) === email);
  
-   if (userIndex === -1) {
+  if (userIndex === -1) {
      return res.status(404).json({
        ok: false,
        message: "User not found."
      });
-   }
- 
-   await User.findOneAndUpdate({ email }, { name, phone });
-  users[userIndex] = { ...users[userIndex], name, phone };
- 
+  }
+
+  if (username) {
+    const usernameTaken = users.some((item, index) =>
+      index !== userIndex && normalizeSearchValue(item.username) === normalizeSearchValue(username)
+    );
+
+    if (usernameTaken) {
+      return res.status(409).json({
+        ok: false,
+        message: "That username is already taken."
+      });
+    }
+  }
+
+   await User.findOneAndUpdate({ email }, { name, phone, username, bio });
+  users[userIndex] = { ...users[userIndex], name, phone, username, bio };
+
    return res.json({
      ok: true,
      user: {
        name: users[userIndex].name,
+       username: users[userIndex].username || "",
        email: users[userIndex].email,
-       phone: users[userIndex].phone
+       phone: users[userIndex].phone,
+       bio: users[userIndex].bio || "",
+       avatar: users[userIndex].avatar || ""
      }
    });
  });
@@ -843,8 +890,15 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
  
    currentUser.following.push(targetUserId);
    targetUser.followers.push(currentUser.id);
- 
+
    for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
+
+   emitNotification(targetUser.email, {
+    type: "follow",
+    title: "New follower",
+    message: `${currentUser.name} followed you.`,
+    actorEmail: currentUser.email
+   });
  
    return res.json({
      ok: true,
@@ -1537,25 +1591,30 @@ app.get("/api/search", async (req, res) => {
  });
 
  // Get user profile including avatar
- app.get("/api/account", async (req, res) => {
-   const email = normalizeEmail(req.query.email);
-   if (!email) return res.status(400).json({ ok: false, message: "Email required." });
+app.get("/api/account", async (req, res) => {
+  const email = normalizeEmail(req.query.email);
+  if (!email) return res.status(400).json({ ok: false, message: "Email required." });
 
-   const users = await User.find({}).lean();
-   const user = users.find((u) => normalizeEmail(u.email) === email);
-   if (!user) return res.status(404).json({ ok: false, message: "User not found." });
+  const users = await User.find({}).lean();
+  const user = users.find((u) => normalizeEmail(u.email) === email);
+  if (!user) return res.status(404).json({ ok: false, message: "User not found." });
 
-   return res.json({
-     ok: true,
-     user: {
-       id: user.id,
-       name: user.name,
-       email: user.email,
-       phone: user.phone || "",
-       avatar: user.avatar || "",
-       karma: user.karma || 0,
-       following: user.following || [],
-       followers: user.followers || []
+  return res.json({
+    ok: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      username: user.username || "",
+      email: user.email,
+      phone: user.phone || "",
+      avatar: user.avatar || "",
+      bio: user.bio || "",
+      karma: user.karma || 0,
+      following: user.following || [],
+      followers: user.followers || []
+      ,
+      followingSubreddits: user.followingSubreddits || [],
+      online: onlineUsers.has(normalizeEmail(user.email))
      }
    });
  });
@@ -1675,6 +1734,12 @@ app.post("/api/messages", async (req, res) => {
 
   // Emit real-time message to recipient
   io.to(toEmail).emit("newMessage", newMsg);
+  emitNotification(receiver.email, {
+    type: "message",
+    title: "New message",
+    message: `${sender.name} sent you a message.`,
+    actorEmail: sender.email
+  });
 
   return res.status(201).json({ ok: true, message: newMsg });
 });
