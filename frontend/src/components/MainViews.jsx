@@ -1,206 +1,6 @@
-function MessagesView({ conversations, openConversation, getMessagePreview, unreadConversationCount }) {
-  return (
-    <div className="content-card">
-      <div className="section-head" style={{ marginBottom: 14 }}>
-        <div>
-          <h1>Messages</h1>
-          <p>{unreadConversationCount ? `${unreadConversationCount} unread conversation${unreadConversationCount === 1 ? "" : "s"}` : "All caught up for now."}</p>
-        </div>
-      </div>
-      {conversations.length === 0 ? (
-        <div className="search-empty">No conversations yet. Find someone and send a message!</div>
-      ) : (
-        <div className="member-list">
-          {(Array.isArray(conversations) ? conversations : []).map((conv) => (
-            <div
-              key={conv.otherEmail}
-              className="member-card"
-              style={{ cursor: "pointer", borderLeft: conv.unread > 0 ? "3px solid var(--accent)" : "none" }}
-              onClick={() => void openConversation(conv.otherEmail, conv.otherName)}
-            >
-              <div className="member-avatar">{conv.otherName?.charAt(0).toUpperCase()}</div>
-              <div style={{ flex: 1 }}>
-                <div className="member-name">{conv.otherName}</div>
-                <div className="member-email">{getMessagePreview(conv.messages?.[conv.messages.length - 1] || conv).slice(0, 40)}</div>
-              </div>
-              {conv.unread > 0 ? (
-                <div style={{ background: "var(--accent)", color: "#fff", borderRadius: "999px", padding: "2px 8px", fontSize: "0.75rem", fontWeight: 700 }}>
-                  {conv.unread}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+import React from "react";
 
-function ThreadView({
-  activeConvName,
-  accountEmail,
-  threadMessages,
-  loadConversations,
-  setView,
-  messagesEndRef,
-  msgError,
-  mediaPreview,
-  mediaFile,
-  clearMedia,
-  fileInputRef,
-  handleMediaSelect,
-  msgLoading,
-  mediaUploading,
-  msgDraft,
-  setMsgDraft,
-  sendMessage,
-  isOtherOnline
-}) {
-  return (
-    <div className="content-card" style={{ display: "flex", flexDirection: "column", minHeight: "80vh" }}>
-      <div className="section-head" style={{ marginBottom: 14 }}>
-        <button className="action-button" type="button" onClick={() => { void loadConversations(); setView("messages"); }}>
-          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-          Back
-        </button>
-        <h1 style={{ fontSize: "1rem", display: "flex", flexDirection: "column", gap: 2 }}>
-          <span>
-            <div className="member-avatar" style={{ display: "inline-grid", width: 28, height: 28, fontSize: "0.8rem", marginRight: 8, verticalAlign: "middle" }}>
-              {activeConvName?.charAt(0).toUpperCase()}
-            </div>
-            {activeConvName}
-          </span>
-          <span style={{ fontSize: "11px", color: "#22c55e", display: "flex", alignItems: "center", gap: 4, marginLeft: 36 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: isOtherOnline ? "#22c55e" : "#9ca3af", display: "inline-block" }} />
-            {isOtherOnline ? "Online" : "Offline"}
-          </span>
-        </h1>
-      </div>
-      <div style={{ flex: 1, display: "grid", gap: 10, marginBottom: 14, maxHeight: "60vh", overflowY: "auto", padding: "4px 0" }}>
-        {threadMessages.length === 0 ? (
-          <div className="search-empty">No messages yet. Say hi!</div>
-        ) : (
-          (Array.isArray(threadMessages) ? threadMessages : []).map((msg) => (
-            <div
-              key={msg.id}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: msg.fromEmail === accountEmail ? "flex-end" : "flex-start"
-              }}
-            >
-              <div
-                style={{
-                  maxWidth: "75%",
-                  padding: msg.mediaUrl && !msg.text ? "4px" : "10px 14px",
-                  borderRadius: msg.fromEmail === accountEmail ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                  background: msg.fromEmail === accountEmail ? "var(--accent)" : "var(--bg-3)",
-                  color: msg.fromEmail === accountEmail ? "#fff" : "var(--text)",
-                  fontSize: "0.92rem",
-                  lineHeight: 1.4,
-                  overflow: "hidden"
-                }}
-              >
-                {msg.mediaUrl && msg.mediaType === "video" ? (
-                  <video
-                    src={msg.mediaUrl}
-                    controls
-                    style={{ display: "block", maxWidth: "100%", maxHeight: 280, borderRadius: 14 }}
-                  />
-                ) : msg.mediaUrl ? (
-                  <img
-                    src={msg.mediaUrl}
-                    alt="media"
-                    style={{ display: "block", maxWidth: "100%", maxHeight: 280, borderRadius: 14, cursor: "pointer" }}
-                    onClick={() => window.open(msg.mediaUrl, "_blank")}
-                  />
-                ) : null}
-                {msg.text ? <span style={{ display: msg.mediaUrl ? "block" : "inline", marginTop: msg.mediaUrl ? 6 : 0 }}>{msg.text}</span> : null}
-              </div>
-              <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 3, padding: "0 4px" }}>
-                {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </div>
-            </div>
-          ))
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-        {msgError ? (
-          <div className="feedback error" style={{ marginBottom: 8 }}>{msgError}</div>
-        ) : null}
-        {mediaPreview ? (
-          <div style={{ position: "relative", display: "inline-block", marginBottom: 8 }}>
-            {mediaFile?.type.startsWith("video") ? (
-              <video src={mediaPreview} style={{ maxHeight: 120, maxWidth: 200, borderRadius: 12 }} />
-            ) : (
-              <img src={mediaPreview} alt="preview" style={{ maxHeight: 120, maxWidth: 200, borderRadius: 12, objectFit: "cover" }} />
-            )}
-            <button
-              type="button"
-              onClick={clearMedia}
-              style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: "50%", border: 0, background: "#ff4444", color: "#fff", cursor: "pointer", fontSize: 14, display: "grid", placeItems: "center", lineHeight: 1 }}
-            >
-              x
-            </button>
-          </div>
-        ) : null}
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,image/gif,video/*"
-            style={{ display: "none" }}
-            onChange={handleMediaSelect}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={msgLoading || mediaUploading}
-            title="Attach image, GIF or video"
-            style={{
-              width: 44, height: 44, border: "1px solid var(--border)", borderRadius: "999px",
-              background: "var(--bg-3)", color: "var(--muted)",
-              display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>
-          </button>
-          <textarea
-            style={{
-              flex: 1, padding: "10px 14px", borderRadius: 20,
-              border: "1px solid var(--border)", background: "var(--bg-3)",
-              color: "var(--text)", resize: "none", minHeight: 44, maxHeight: 120,
-              fontSize: "0.92rem", outline: "none"
-            }}
-            placeholder={mediaUploading ? "Uploading..." : `Message ${activeConvName}...`}
-            value={msgDraft}
-            onChange={(e) => setMsgDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
-          />
-          <button
-            type="button"
-            onClick={() => void sendMessage()}
-            disabled={msgLoading || mediaUploading || (!msgDraft.trim() && !mediaFile)}
-            style={{
-              width: 44, height: 44, border: 0, borderRadius: "999px",
-              background: (msgDraft.trim() || mediaFile) ? "var(--accent)" : "var(--bg-3)",
-              color: (msgDraft.trim() || mediaFile) ? "#fff" : "var(--muted)",
-              display: "grid", placeItems: "center", cursor: "pointer",
-              flexShrink: 0, transition: "background 0.15s"
-            }}
-          >
-            {mediaUploading
-              ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-              : <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProfileView({
+export function ProfileView({
   profileUser,
   accountEmail,
   setView,
@@ -210,181 +10,214 @@ function ProfileView({
   handleToggleUserFollow,
   isOnline
 }) {
+  if (!profileUser) return <div className="content-card">Loading profile...</div>;
+
   return (
     <div className="content-card">
-      <div className="section-head" style={{ marginBottom: 14 }}>
+      <div className="section-head" style={{ marginBottom: 24 }}>
         <button className="action-button" type="button" onClick={() => setView("feed")}>
-          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-          Back
+          <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          Back to Feed
         </button>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "20px 0" }}>
-        {profileUser.avatar ? (
-          <img src={profileUser.avatar} alt={profileUser.name} style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover" }} />
-        ) : (
-          <div className="member-avatar" style={{ width: 72, height: 72, fontSize: "2rem" }}>{profileUser.name?.charAt(0).toUpperCase()}</div>
-        )}
-        <div style={{ fontSize: "1.2rem", fontWeight: 700 }}>{profileUser.name}</div>
-        {profileUser.username ? <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>@{profileUser.username}</div> : null}
-        <div style={{ color: "var(--muted)", fontSize: "0.88rem" }}>{profileUser.email}</div>
-        {profileUser.bio ? <div style={{ color: "var(--muted)", fontSize: "0.9rem", maxWidth: 460, textAlign: "center" }}>{profileUser.bio}</div> : null}
-        <div style={{ display: "flex", gap: 14, color: "var(--muted)", fontSize: "0.85rem" }}>
-          <span>{(profileUser.followers || []).length} followers</span>
-          <span>{(profileUser.following || []).length} following</span>
-          <span>{isOnline ? "Online" : "Offline"}</span>
+      
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "20px 0" }}>
+        <div style={{ position: "relative", marginBottom: 20 }}>
+          {profileUser.avatar ? (
+            <img src={profileUser.avatar} alt={profileUser.name} style={{ width: 120, height: 120, borderRadius: "30px", objectFit: "cover", border: "4px solid var(--bg-dark)", boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }} />
+          ) : (
+            <div className="post-community-avatar" style={{ width: 120, height: 120, borderRadius: "30px", fontSize: "3rem" }}>{profileUser.name?.charAt(0).toUpperCase()}</div>
+          )}
+          {isOnline && <div style={{ position: "absolute", bottom: 8, right: 8, width: 20, height: 20, borderRadius: "50%", background: "var(--success)", border: "4px solid var(--bg-card)" }} />}
         </div>
-        {!isOwnProfile ? (
-          <button className="post-button" type="button" onClick={() => void handleToggleUserFollow(profileUser)}>
-            {isFollowing ? "Following" : "Follow"}
-          </button>
-        ) : null}
-        {!isOwnProfile ? (
-          <button
-            className="post-button"
-            type="button"
-            onClick={() => void openConversation(profileUser.email, profileUser.name)}
-            style={{ display: "flex", alignItems: "center", gap: 8 }}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
-            Send Message
-          </button>
-        ) : null}
+        
+        <h1 style={{ fontSize: "1.8rem", marginBottom: 4 }}>{profileUser.name}</h1>
+        {profileUser.username && <div style={{ color: "var(--accent)", fontSize: "1.1rem", fontWeight: 700, marginBottom: 8 }}>u/{profileUser.username}</div>}
+        <div style={{ color: "var(--text-muted)", fontSize: "0.95rem", marginBottom: 16 }}>{profileUser.email}</div>
+        
+        {profileUser.bio && <p style={{ color: "var(--text-main)", fontSize: "1rem", maxWidth: 500, lineHeight: 1.6, marginBottom: 24 }}>{profileUser.bio}</p>}
+        
+        <div style={{ display: "flex", gap: 32, marginBottom: 32 }}>
+          <div>
+            <div style={{ fontSize: "1.2rem", fontWeight: 800 }}>{(profileUser.followers || []).length}</div>
+            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Followers</div>
+          </div>
+          <div>
+            <div style={{ fontSize: "1.2rem", fontWeight: 800 }}>{(profileUser.following || []).length}</div>
+            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Following</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 12 }}>
+          {!isOwnProfile && (
+            <>
+              <button className={isFollowing ? "action-button active" : "post-button"} type="button" onClick={() => void handleToggleUserFollow(profileUser)} style={{ padding: "12px 24px" }}>
+                {isFollowing ? "Unfollow" : "Follow User"}
+              </button>
+              <button
+                className="post-button"
+                type="button"
+                onClick={() => void openConversation(profileUser.email, profileUser.name)}
+                style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--bg-elevated)", color: "var(--text-main)", border: "1px solid var(--border)", padding: "12px 24px" }}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+                Message
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function SearchView({ headerSearch, setHeaderSearch, searchLoading, searchError, searchResults, openUserProfile, openPost, openCommunity }) {
+export function SearchView({ headerSearch, setHeaderSearch, searchLoading, searchError, searchResults, openUserProfile, openPost, openCommunity }) {
   const hasPosts = searchResults.posts.length > 0;
   const hasSubreddits = searchResults.subreddits.length > 0;
   const hasUsers = searchResults.users.length > 0;
 
   return (
     <div className="content-card">
-      <div className="section-head" style={{ padding: 0, marginBottom: 14 }}>
-        <h1>Search</h1>
+      <div className="section-head" style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: "1.8rem" }}>Global Search</h1>
       </div>
-      <div className="search-box" style={{ marginBottom: 14 }}>
-        <input
-          type="text"
-          placeholder="Search posts, communities..."
-          value={headerSearch}
-          onChange={(e) => setHeaderSearch(e.target.value)}
-          autoFocus
-        />
+      <div className="search-box" style={{ marginBottom: 32 }}>
+        <div style={{ position: "relative" }}>
+          <svg style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input
+            type="text"
+            placeholder="Search for people, posts, or communities..."
+            value={headerSearch}
+            onChange={(e) => setHeaderSearch(e.target.value)}
+            style={{ paddingLeft: 48, height: 54, fontSize: "1.05rem" }}
+            autoFocus
+          />
+        </div>
       </div>
+
       {headerSearch.trim() ? (
         searchLoading ? (
-          <div className="search-empty">Searching...</div>
+          <div className="search-empty" style={{ padding: "40px 0" }}>Searching Threadspace...</div>
         ) : searchError ? (
           <div className="feedback error">{searchError}</div>
         ) : hasPosts || hasSubreddits || hasUsers ? (
-          <div className="posts-feed">
-            {hasPosts ? (
-              <>
-                <div className="rail-title">Posts</div>
-                {searchResults.posts.map((item) => (
-                  <article className="feed-card" key={`post-${item.id}`} onClick={() => openPost(item.id)} style={{ cursor: "pointer" }}>
-                    <div className="post-header">
-                      <div className="post-community-avatar">{item.subreddit?.charAt(0).toUpperCase()}</div>
-                      <div className="post-meta-col">
-                        <div className="post-meta-top"><span className="community-name" onClick={(event) => { event.stopPropagation(); openCommunity(item.subreddit); }}>r/{item.subreddit}</span></div>
-                        <div className="post-meta-bottom">
-                          <span style={{ cursor: "pointer", color: "var(--accent)" }} onClick={() => void openUserProfile(item.authorEmail, item.authorName)}>
-                            u/{item.authorName}
-                          </span>
+          <div className="feed-page" style={{ gap: 32 }}>
+            {hasPosts && (
+              <section>
+                <div className="rail-title" style={{ marginBottom: 16 }}>Posts</div>
+                <div style={{ display: "grid", gap: 12 }}>
+                  {searchResults.posts.map((item) => (
+                    <article className="feed-card" key={`post-${item.id}`} onClick={() => openPost(item.id)} style={{ cursor: "pointer", padding: "16px" }}>
+                      <div className="post-header" style={{ marginBottom: 12 }}>
+                        <div className="post-community-avatar" style={{ width: 32, height: 32, borderRadius: "8px" }}>{item.subreddit?.charAt(0).toUpperCase()}</div>
+                        <div className="post-meta-col">
+                          <span className="community-name" style={{ fontSize: "0.85rem" }}>r/{item.subreddit}</span>
                         </div>
                       </div>
-                    </div>
-                    <p className="post-caption">{item.caption}</p>
-                    {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
-                  </article>
-                ))}
-              </>
-            ) : null}
+                      <p className="post-caption" style={{ fontSize: "0.95rem", marginBottom: 0 }}>{item.caption}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
 
-            {hasSubreddits ? (
-              <>
-                <div className="rail-title">Communities</div>
-                {searchResults.subreddits.map((item) => (
-                  <article className="community-card" key={`subreddit-${item.id}`} onClick={() => openCommunity(item.name)} style={{ cursor: "pointer" }}>
-                    <div className="community-handle">r/{item.name}</div>
-                    <h3>{item.title}</h3>
-                    <p>{item.description || "No description added yet."}</p>
-                  </article>
-                ))}
-              </>
-            ) : null}
+            {hasSubreddits && (
+              <section>
+                <div className="rail-title" style={{ marginBottom: 16 }}>Communities</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+                  {searchResults.subreddits.map((item) => (
+                    <article className="community-card" key={`subreddit-${item.id}`} onClick={() => openCommunity(item.name)} style={{ cursor: "pointer", padding: "16px", margin: 0 }}>
+                      <div className="community-handle" style={{ fontSize: "0.85rem" }}>r/{item.name}</div>
+                      <h3 style={{ fontSize: "1rem", margin: "4px 0" }}>{item.title}</h3>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
 
-            {hasUsers ? (
-              <>
-                <div className="rail-title">People</div>
-                {searchResults.users.map((user) => (
-                  <div
-                    className="member-card"
-                    key={`user-${user.id}`}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => void openUserProfile(user.email, user.name)}
-                  >
-                    <div className="member-avatar">{user.name?.charAt(0).toUpperCase()}</div>
-                    <div style={{ flex: 1 }}>
-                      <div className="member-name">{user.name}</div>
-                      <div className="member-email">{user.email}</div>
+            {hasUsers && (
+              <section>
+                <div className="rail-title" style={{ marginBottom: 16 }}>People</div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {searchResults.users.map((user) => (
+                    <div
+                      className="member-card"
+                      key={`user-${user.id}`}
+                      style={{ cursor: "pointer", padding: "12px", background: "var(--bg-dark)", border: "1px solid var(--border)" }}
+                      onClick={() => void openUserProfile(user.email, user.name)}
+                    >
+                      <div className="member-avatar" style={{ width: 40, height: 40 }}>{user.name?.charAt(0).toUpperCase()}</div>
+                      <div style={{ flex: 1 }}>
+                        <div className="member-name" style={{ fontSize: "0.95rem" }}>{user.name}</div>
+                        <div className="member-email" style={{ fontSize: "0.8rem" }}>{user.email}</div>
+                      </div>
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="var(--accent)"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
                     </div>
-                    <div style={{ color: "var(--accent)", fontSize: "0.8rem", fontWeight: 700 }}>Open</div>
-                  </div>
-                ))}
-              </>
-            ) : null}
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         ) : (
-          <div className="search-empty">No results for "{headerSearch}"</div>
+          <div className="search-empty" style={{ padding: "40px 0" }}>No results found for "{headerSearch}"</div>
         )
       ) : (
-        <div className="search-empty">Type something to search...</div>
+        <div className="search-empty" style={{ padding: "60px 0", opacity: 0.5 }}>
+           <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor" style={{ marginBottom: 16 }}><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+           <p>Type something to explore Threadspace</p>
+        </div>
       )}
     </div>
   );
 }
 
-function MemberSearchRail({ memberSearch, setMemberSearch, searchMembers, membersLoading, members, openUserProfile }) {
+export function MemberSearchRail({ memberSearch, setMemberSearch, searchMembers, membersLoading, members, openUserProfile }) {
   return (
     <aside className="right-rail">
-      <div className="rail-card">
-        <div className="rail-title">Member Search</div>
-        <label className="search-box">
-          <input
-            type="text"
-            placeholder="Search members"
-            value={memberSearch}
-            onChange={(event) => {
-              const value = event.target.value;
-              setMemberSearch(value);
-              void searchMembers(value);
-            }}
-          />
-        </label>
+      <div className="rail-card" style={{ padding: "24px" }}>
+        <div className="rail-title">Find Members</div>
+        <div className="search-box" style={{ marginBottom: 20 }}>
+          <div style={{ position: "relative" }}>
+            <input
+              type="text"
+              placeholder="Search people..."
+              value={memberSearch}
+              onChange={(event) => {
+                const value = event.target.value;
+                setMemberSearch(value);
+                void searchMembers(value);
+              }}
+              style={{ paddingLeft: 38, height: 42, fontSize: "0.9rem", borderRadius: "12px" }}
+            />
+            <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          </div>
+        </div>
+        
         {membersLoading ? (
-          <div className="search-empty">Searching members...</div>
+          <div className="search-empty" style={{ fontSize: "0.85rem" }}>Loading...</div>
         ) : members.length ? (
-          <div className="member-list">
+          <div className="member-list" style={{ gap: 8 }}>
             {(Array.isArray(members) ? members : []).map((member) => (
-              <div className="member-card" key={member.id} style={{ cursor: "pointer" }} onClick={() => void openUserProfile(member.email, member.name)}>
-                <div className="member-avatar">{member.name.charAt(0)}</div>
+              <div 
+                className="member-card" 
+                key={member.id} 
+                style={{ cursor: "pointer", padding: "10px", borderRadius: "10px", border: "1px solid transparent" }} 
+                onClick={() => void openUserProfile(member.email, member.name)}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--border)"}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = "transparent"}
+              >
+                <div className="member-avatar" style={{ width: 34, height: 34, fontSize: "0.85rem" }}>{member.name.charAt(0)}</div>
                 <div style={{ flex: 1 }}>
-                  <div className="member-name">{member.name}</div>
-                  <div className="member-email">{member.email}</div>
+                  <div className="member-name" style={{ fontSize: "0.88rem" }}>{member.name}</div>
                 </div>
-                <div style={{ color: "var(--accent)", fontSize: "0.8rem", fontWeight: 700 }}>Message -&gt;</div>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="var(--text-muted)"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
               </div>
             ))}
           </div>
         ) : (
-          <div className="search-empty">No matching members found.</div>
+          <div className="search-empty" style={{ fontSize: "0.85rem" }}>No results.</div>
         )}
       </div>
     </aside>
   );
 }
-
-export { MemberSearchRail, MessagesView, ProfileView, SearchView, ThreadView };

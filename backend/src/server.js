@@ -10,6 +10,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import crypto from "crypto";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import {
@@ -37,7 +38,9 @@ import {
    console.error("Failed to create mail transporter:", err.message);
  }
  
- const otpStore = new Map();
+const otpStore = new Map();
+const AUTH_SECRET = String(process.env.AUTH_SECRET || "threadspace-dev-secret").trim();
+const AUTH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  
 const app = express();
 const server = createServer(app);
@@ -94,13 +97,20 @@ function emitPresenceUpdate() {
   });
 }
 
-function emitNotification(targetEmail, notification) {
-  if (!targetEmail) return;
-  io.to(targetEmail).emit("notification", {
+async function emitNotification(targetEmail, notification) {
+  const normalizedTargetEmail = normalizeEmail(targetEmail);
+  if (!normalizedTargetEmail) return;
+
+  const savedNotification = {
     id: Date.now(),
+    userEmail: normalizedTargetEmail,
     createdAt: new Date().toISOString(),
+    read: false,
     ...notification
-  });
+  };
+
+  await Notification.create(savedNotification);
+  io.to(normalizedTargetEmail).emit("notification", savedNotification);
 }
 
 function emitSiteUpdate(update) {
@@ -124,6 +134,25 @@ function emitSiteUpdate(update) {
    socket.on("sendMessage", (message) => {
      if (message?.toEmail) {
        io.to(message.toEmail).emit("newMessage", message);
+     }
+   });
+
+   socket.on("typing", ({ fromEmail, toEmail }) => {
+     if (toEmail) {
+       io.to(normalizeEmail(toEmail)).emit("typing", { fromEmail: normalizeEmail(fromEmail) });
+     }
+   });
+
+   socket.on("stopTyping", ({ fromEmail, toEmail }) => {
+     if (toEmail) {
+       io.to(normalizeEmail(toEmail)).emit("stopTyping", { fromEmail: normalizeEmail(fromEmail) });
+     }
+   });
+
+   socket.on("markAsRead", async ({ messageId, fromEmail, toEmail }) => {
+     await Message.updateOne({ id: messageId }, { $set: { read: true } });
+     if (fromEmail) {
+       io.to(normalizeEmail(fromEmail)).emit("messagesRead", { byEmail: normalizeEmail(toEmail) });
      }
    });
 
@@ -216,10 +245,23 @@ const messageSchema = new mongoose.Schema({
   read: { type: Boolean, default: false }
 });
 
+const notificationSchema = new mongoose.Schema({
+  id: Number,
+  userEmail: String,
+  type: String,
+  title: String,
+  message: String,
+  actorEmail: String,
+  postId: Number,
+  createdAt: String,
+  read: { type: Boolean, default: false }
+});
+
 const User = mongoose.model("User", userSchema);
 const Post = mongoose.model("Post", postSchema);
 const Subreddit = mongoose.model("Subreddit", subredditSchema);
 const Message = mongoose.model("Message", messageSchema);
+const Notification = mongoose.model("Notification", notificationSchema);
 
 // Helper functions (async, MongoDB-based)
 async function readUsers() {
@@ -378,6 +420,37 @@ app.get("/api/presence", (_req, res) => {
   res.json({
     ok: true,
     onlineEmails: Array.from(onlineUsers.keys())
+  });
+});
+
+app.get("/api/notifications", async (req, res) => {
+  const userEmail = normalizeEmail(req.query.userEmail);
+
+  if (!userEmail) {
+    return res.status(400).json({ ok: false, message: "User email is required." });
+  }
+
+  const notifications = await Notification.find({ userEmail })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return res.json({
+    ok: true,
+    notifications
+  });
+});
+
+app.patch("/api/notifications/read", async (req, res) => {
+  const userEmail = normalizeEmail(req.body?.userEmail);
+
+  if (!userEmail) {
+    return res.status(400).json({ ok: false, message: "User email is required." });
+  }
+
+  await Notification.updateMany({ userEmail, read: false }, { read: true });
+
+  return res.json({
+    ok: true
   });
 });
 
@@ -908,7 +981,7 @@ app.post("/api/uploads/message-media", upload.single("file"), async (req, res) =
 
    for (const u of users) { await User.findOneAndUpdate({ email: u.email }, u, { upsert: true }); }
 
-   emitNotification(targetUser.email, {
+   await emitNotification(targetUser.email, {
     type: "follow",
     title: "New follower",
     message: `${currentUser.name} followed you.`,
@@ -1377,7 +1450,7 @@ app.post("/api/posts/:id/react", async (req, res) => {
   // Emit socket event for real-time updates
   io.emit('postReaction', { postId, post, userEmail, reaction });
   if (normalizeEmail(post.authorEmail) !== normalizeEmail(userEmail)) {
-    emitNotification(post.authorEmail, {
+    await emitNotification(post.authorEmail, {
       type: "reaction",
       title: reaction === "like" ? "New like" : "New dislike",
       message: `${userEmail} reacted to your post.`,
@@ -1430,7 +1503,7 @@ app.post("/api/posts/:id/react", async (req, res) => {
   await Post.deleteMany({}); await Post.insertMany(posts);
 
   if (normalizeEmail(posts[postIndex].authorEmail) !== normalizeEmail(authorEmail)) {
-    emitNotification(posts[postIndex].authorEmail, {
+    await emitNotification(posts[postIndex].authorEmail, {
       type: "comment",
       title: "New comment",
       message: `${authorName} commented on your post.`,
@@ -1784,14 +1857,16 @@ app.get("/api/messages/:otherEmail", async (req, res) => {
   const currentEmail = currentUser?.email || userEmail;
   const canonicalOtherEmail = otherUser?.email || otherEmail;
 
-  await Message.updateMany(
-    {
+  const unreadQuery = {
       fromEmail: canonicalOtherEmail,
       toEmail: currentEmail,
       read: false
-    },
-    { $set: { read: true } }
-  );
+  };
+  const unreadCount = await Message.countDocuments(unreadQuery);
+  if (unreadCount > 0) {
+    await Message.updateMany(unreadQuery, { $set: { read: true } });
+    io.to(canonicalOtherEmail).emit("messagesRead", { byEmail: currentEmail });
+  }
 
   const thread = (await Message.find({}).sort({ createdAt: 1 }).lean()).filter((message) => {
     const normalizedFromEmail = normalizeEmail(message.fromEmail);
@@ -1847,7 +1922,7 @@ app.post("/api/messages", async (req, res) => {
 
   // Emit real-time message to recipient
   io.to(toEmail).emit("newMessage", newMsg);
-  emitNotification(receiver.email, {
+  await emitNotification(receiver.email, {
     type: "message",
     title: "New message",
     message: `${sender.name} sent you a message.`,
