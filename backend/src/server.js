@@ -1209,18 +1209,21 @@ app.get("/api/search", async (req, res) => {
   }
 
   if (type === "all" || type === "subreddits") {
+    const queryNoSpace = query.replace(/\s+/g, "");
     const subreddits = await Subreddit.find({}).lean();
     results.subreddits = subreddits.filter((subreddit) =>
-      normalizeSearchValue(subreddit.name).includes(query) ||
+      normalizeSearchValue(subreddit.name).includes(queryNoSpace) ||
       normalizeSearchValue(subreddit.title).includes(query) ||
       normalizeSearchValue(subreddit.description).includes(query)
     );
   }
 
   if (type === "all" || type === "users") {
+    const queryNoSpace = query.replace(/\s+/g, "");
     const users = await User.find({}).lean();
     results.users = users.filter((user) =>
       normalizeSearchValue(user.name).includes(query) ||
+      normalizeSearchValue(user.name).includes(queryNoSpace) ||
       normalizeSearchValue(user.email).includes(query)
     ).map((user) => ({
       id: user.id,
