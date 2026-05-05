@@ -238,9 +238,16 @@ export default function App() {
   };
 
   // --- Chat Handlers ---
-  const handleMediaSelect = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleMediaSelect = (e, manualUrl = null) => {
+    const file = e?.target?.files?.[0];
+    if (!file && !manualUrl) return;
+
+    if (manualUrl) {
+      setMediaPreview(manualUrl);
+      setMediaFile(null); // No file to upload, it's already a URL
+      return;
+    }
+
     setMediaFile(file);
     const reader = new FileReader();
     reader.onloadend = () => setMediaPreview(reader.result);

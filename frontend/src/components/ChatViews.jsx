@@ -382,7 +382,17 @@ export function ThreadView({
               fontFamily: "inherit", fontSize: "0.95rem", lineHeight: 1.4, wordBreak: "break-word" 
             }}
             data-placeholder={mediaUploading ? "Uploading media..." : "Type a message..."}
-            onInput={(e) => setMsgDraft(e.currentTarget.textContent)}
+            onInput={(e) => {
+              const div = e.currentTarget;
+              // Check for images inserted by keyboard (Gboard GIFs)
+              const img = div.querySelector("img");
+              if (img) {
+                const src = img.src;
+                img.remove();
+                handleMediaSelect(null, src);
+              }
+              setMsgDraft(div.textContent);
+            }}
             onKeyDown={(e) => { 
               if (e.key === "Enter" && !e.shiftKey) { 
                 e.preventDefault(); 
