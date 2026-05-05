@@ -197,14 +197,14 @@ export function ThreadView({
 
   React.useEffect(() => {
     if (!showGifPicker) return;
-    const TENOR_KEY = "L7Q93G96J6S0"; // Public test key
+    const GIPHY_KEY = "dc6zaTOxFJmzC"; // Public beta key
     const endpoint = gifSearch 
-      ? `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(gifSearch)}&key=${TENOR_KEY}&limit=20`
-      : `https://tenor.googleapis.com/v2/featured?key=${TENOR_KEY}&limit=20`;
+      ? `https://api.giphy.com/v1/gifs/search?q=${encodeURIComponent(gifSearch)}&api_key=${GIPHY_KEY}&limit=20`
+      : `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=20`;
     
     fetch(endpoint)
       .then(r => r.json())
-      .then(data => setGifs(data.results || []))
+      .then(data => setGifs(data.data || []))
       .catch(err => console.error("GIF fetch error:", err));
   }, [showGifPicker, gifSearch]);
 
@@ -416,8 +416,8 @@ export function ThreadView({
               {gifs.map(g => (
                 <img 
                   key={g.id} 
-                  src={g.media_formats?.tinygif?.url || g.media_formats?.gif?.url} 
-                  onClick={() => insertGif(g.media_formats?.gif?.url)}
+                  src={g.images?.fixed_height_small?.url} 
+                  onClick={() => insertGif(g.images?.original?.url)}
                   style={{ width: "100%", borderRadius: "8px", cursor: "pointer", aspectRatio: "16/9", objectFit: "cover" }}
                   alt="gif"
                 />
