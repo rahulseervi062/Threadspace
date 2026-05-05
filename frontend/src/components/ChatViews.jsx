@@ -141,6 +141,14 @@ export function ThreadView({
   const [isAtBottom, setIsAtBottom] = React.useState(true);
   const [editingMsgId, setEditingMsgId] = React.useState(null);
   const [editDraft, setEditDraft] = React.useState("");
+  const richInputRef = React.useRef(null);
+
+  // Sync contentEditable with msgDraft (for clearing after send)
+  React.useEffect(() => {
+    if (richInputRef.current && richInputRef.current.textContent !== msgDraft) {
+      if (msgDraft === "") richInputRef.current.textContent = "";
+    }
+  }, [msgDraft]);
 
   const handleScroll = () => {
     const el = chatContainerRef.current;
@@ -169,7 +177,11 @@ export function ThreadView({
   };
 
   const insertEmoji = (emoji) => {
-    setMsgDraft(prev => prev + emoji);
+    if (richInputRef.current) {
+      richInputRef.current.textContent += emoji;
+      setMsgDraft(richInputRef.current.textContent);
+      richInputRef.current.focus();
+    }
     setShowEmoji(false);
   };
 
@@ -358,12 +370,26 @@ export function ThreadView({
             <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
           </button>
 
-          <textarea
-            style={{ flex: 1, background: "transparent", border: "none", color: "var(--text-main)", resize: "none", padding: "10px 4px", maxHeight: "120px", outline: "none", fontFamily: "inherit", fontSize: "0.95rem", lineHeight: 1.4 }}
-            placeholder={mediaUploading ? "Uploading media..." : "Type a message..."}
-            value={msgDraft}
-            onChange={handleTextChange}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); setShowEmoji(false); } }}
+          <div
+            ref={richInputRef}
+            contentEditable
+            role="textbox"
+            aria-multiline="true"
+            className="rich-input"
+            style={{ 
+              flex: 1, background: "transparent", border: "none", color: "var(--text-main)", 
+              padding: "10px 4px", maxHeight: "120px", overflowY: "auto", outline: "none", 
+              fontFamily: "inherit", fontSize: "0.95rem", lineHeight: 1.4, wordBreak: "break-word" 
+            }}
+            data-placeholder={mediaUploading ? "Uploading media..." : "Type a message..."}
+            onInput={(e) => setMsgDraft(e.currentTarget.textContent)}
+            onKeyDown={(e) => { 
+              if (e.key === "Enter" && !e.shiftKey) { 
+                e.preventDefault(); 
+                sendMessage(); 
+                setShowEmoji(false); 
+              } 
+            }}
             onPaste={(e) => {
               if (e.clipboardData) {
                 // Try files array first
@@ -391,7 +417,6 @@ export function ThreadView({
                 }
               }
             }}
-            rows={1}
           />
 
           <button

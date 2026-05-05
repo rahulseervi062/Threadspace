@@ -435,6 +435,12 @@ button, input, textarea, select {
 /* Chat window position for scroll button */
 .chat-window { position: relative; }
 
+.rich-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
 .content-card { background: var(--bg-card); border-radius: 20px; border: 1px solid var(--border); padding: 24px; }
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; }
 
