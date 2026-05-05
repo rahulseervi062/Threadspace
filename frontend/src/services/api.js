@@ -130,6 +130,14 @@ export const api = {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(msgData)
   }).then(handleResponse),
+  editMessage: (messageId, userEmail, text) => fetch(`${API_BASE}/api/messages/${messageId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userEmail, text })
+  }).then(handleResponse),
+  deleteMessage: (messageId, userEmail) => fetch(`${API_BASE}/api/messages/${messageId}?userEmail=${encodeURIComponent(userEmail)}`, {
+    method: "DELETE"
+  }).then(handleResponse),
 
   // Notifications & Presence
   getNotifications: (email) => fetch(`${API_BASE}/api/notifications?userEmail=${encodeURIComponent(email)}`).then(handleResponse),

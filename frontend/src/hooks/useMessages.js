@@ -66,10 +66,28 @@ export function useMessages(accountEmail, accountName) {
       });
     });
 
+    socket.on("messageDeleted", ({ messageId, fromEmail, toEmail }) => {
+      // If it's for the active thread, remove it
+      if (activeConv === fromEmail || activeConv === toEmail) {
+        setThreadMessages(prev => prev.filter(m => m.id !== messageId));
+      }
+      // Also update the conversation preview if it was the last message (optional but good UX)
+      loadConversations();
+    });
+
+    socket.on("messageEdited", (updatedMessage) => {
+      if (activeConv === updatedMessage.fromEmail || activeConv === updatedMessage.toEmail) {
+        setThreadMessages(prev => prev.map(m => m.id === updatedMessage.id ? updatedMessage : m));
+      }
+      loadConversations();
+    });
+
     return () => {
       socket.off("newMessage");
       socket.off("typing");
       socket.off("stopTyping");
+      socket.off("messageDeleted");
+      socket.off("messageEdited");
       socket.disconnect();
     };
   }, [accountEmail, activeConv]);

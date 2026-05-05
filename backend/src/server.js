@@ -242,7 +242,8 @@ const messageSchema = new mongoose.Schema({
   mediaUrl: String,
   mediaType: String,
   createdAt: String,
-  read: { type: Boolean, default: false }
+  read: { type: Boolean, default: false },
+  isEdited: { type: Boolean, default: false }
 });
 
 const notificationSchema = new mongoose.Schema({
@@ -1950,6 +1951,61 @@ app.post("/api/messages", async (req, res) => {
   });
 
   return res.status(201).json({ ok: true, message: newMsg });
+});
+
+// Edit a message
+app.patch("/api/messages/:id", async (req, res) => {
+  const messageId = parseInt(req.params.id);
+  const userEmail = normalizeEmail(req.body?.userEmail);
+  const text = String(req.body?.text || "").trim();
+
+  if (!userEmail || !text) {
+    return res.status(400).json({ ok: false, message: "userEmail and text are required." });
+  }
+
+  const message = await Message.findOne({ id: messageId });
+  if (!message) {
+    return res.status(404).json({ ok: false, message: "Message not found." });
+  }
+
+  if (normalizeEmail(message.fromEmail) !== userEmail) {
+    return res.status(403).json({ ok: false, message: "You can only edit your own messages." });
+  }
+
+  await Message.updateOne({ id: messageId }, { $set: { text, isEdited: true } });
+  
+  const updatedMessage = { ...message.toObject(), text, isEdited: true };
+  
+  // Notify recipient
+  io.to(message.toEmail).emit("messageEdited", updatedMessage);
+  
+  return res.json({ ok: true, message: updatedMessage });
+});
+
+// Delete a message
+app.delete("/api/messages/:id", async (req, res) => {
+  const messageId = parseInt(req.params.id);
+  const userEmail = normalizeEmail(req.query.userEmail);
+
+  if (!userEmail) {
+    return res.status(400).json({ ok: false, message: "userEmail required." });
+  }
+
+  const message = await Message.findOne({ id: messageId });
+  if (!message) {
+    return res.status(404).json({ ok: false, message: "Message not found." });
+  }
+
+  if (normalizeEmail(message.fromEmail) !== userEmail) {
+    return res.status(403).json({ ok: false, message: "You can only delete your own messages." });
+  }
+
+  await Message.deleteOne({ id: messageId });
+
+  // Notify recipient
+  io.to(message.toEmail).emit("messageDeleted", { messageId, fromEmail: message.fromEmail, toEmail: message.toEmail });
+
+  return res.json({ ok: true });
 });
 
 /* Catch-all for unknown routes */

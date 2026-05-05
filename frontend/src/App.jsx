@@ -320,6 +320,26 @@ export default function App() {
     }
   };
 
+  const handleDeleteMessage = async (messageId) => {
+    // Optimistic delete
+    setThreadMessages(prev => prev.filter(m => m.id !== messageId));
+    try {
+      await api.deleteMessage(messageId, accountEmail);
+    } catch (err) {
+      setMsgError(err.message || "Failed to delete message");
+    }
+  };
+
+  const handleEditMessage = async (messageId, newText) => {
+    // Optimistic edit
+    setThreadMessages(prev => prev.map(m => m.id === messageId ? { ...m, text: newText, isEdited: true } : m));
+    try {
+      await api.editMessage(messageId, accountEmail, newText);
+    } catch (err) {
+      setMsgError(err.message || "Failed to edit message");
+    }
+  };
+
   // --- Navigation Helpers ---
   const openUserProfile = async (email, name) => {
     setView("profile");
@@ -528,6 +548,7 @@ export default function App() {
               sendMessage={sendMessage} isOtherOnline={isOtherOnline}
               typingUsers={typingUsers} sendTyping={sendTyping} sendStopTyping={sendStopTyping}
               uploadProgress={uploadProgress}
+              handleDeleteMessage={handleDeleteMessage} handleEditMessage={handleEditMessage}
             />
           )}
 

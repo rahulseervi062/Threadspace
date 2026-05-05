@@ -130,13 +130,17 @@ export function ThreadView({
   typingUsers,
   sendTyping,
   sendStopTyping,
-  uploadProgress
+  uploadProgress,
+  handleDeleteMessage,
+  handleEditMessage
 }) {
   const isTyping = typingUsers.has(activeConv);
   const typingTimeoutRef = React.useRef(null);
   const [showEmoji, setShowEmoji] = React.useState(false);
   const chatContainerRef = React.useRef(null);
   const [isAtBottom, setIsAtBottom] = React.useState(true);
+  const [editingMsgId, setEditingMsgId] = React.useState(null);
+  const [editDraft, setEditDraft] = React.useState("");
 
   const handleScroll = () => {
     const el = chatContainerRef.current;
@@ -234,13 +238,40 @@ export function ThreadView({
                     className={`message-bubble ${isMine ? "message-sent" : "message-received"}`}
                     style={{ maxWidth: "75%", position: "relative" }}
                   >
-                    {msg.mediaUrl && msg.mediaType === "video" ? (
-                      <video src={msg.mediaUrl} controls style={{ maxWidth: "100%", borderRadius: "12px", marginBottom: msg.text ? 8 : 0 }} />
-                    ) : msg.mediaUrl ? (
-                      <img src={msg.mediaUrl} alt="media" style={{ maxWidth: "100%", borderRadius: "12px", marginBottom: msg.text ? 8 : 0, cursor: "zoom-in" }} onClick={() => window.open(msg.mediaUrl, "_blank")} />
-                    ) : null}
-                    {msg.text && <p dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.text) }} style={{ margin: 0, lineHeight: 1.5 }} />}
+                    {isMine && !msg._optimistic && editingMsgId !== msg.id && (
+                      <div className="msg-actions" style={{ position: "absolute", top: -8, left: -24, display: "flex", gap: 4, opacity: 0, transition: "opacity 0.2s" }}>
+                        <button className="action-button" title="Edit" onClick={() => { setEditingMsgId(msg.id); setEditDraft(msg.text); }} style={{ padding: 4, width: 24, height: 24 }}><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+                        <button className="action-button" title="Delete" onClick={() => handleDeleteMessage(msg.id)} style={{ padding: 4, width: 24, height: 24, color: "var(--danger)" }}><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+                      </div>
+                    )}
+
+                    {editingMsgId === msg.id ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 200 }}>
+                        <textarea
+                          autoFocus
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditMessage(msg.id, editDraft); setEditingMsgId(null); } }}
+                          style={{ width: "100%", background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.3)", color: "white", borderRadius: 8, padding: 8, minHeight: 60, fontSize: "0.95rem" }}
+                        />
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                          <button onClick={() => setEditingMsgId(null)} style={{ background: "transparent", color: "white", border: "none", fontSize: "0.85rem", cursor: "pointer", fontWeight: 600 }}>Cancel</button>
+                          <button onClick={() => { handleEditMessage(msg.id, editDraft); setEditingMsgId(null); }} style={{ background: "white", color: "black", border: "none", borderRadius: 12, padding: "4px 12px", fontSize: "0.85rem", cursor: "pointer", fontWeight: 700 }}>Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {msg.mediaUrl && msg.mediaType === "video" ? (
+                          <video src={msg.mediaUrl} controls style={{ maxWidth: "100%", borderRadius: "12px", marginBottom: msg.text ? 8 : 0 }} />
+                        ) : msg.mediaUrl ? (
+                          <img src={msg.mediaUrl} alt="media" style={{ maxWidth: "100%", borderRadius: "12px", marginBottom: msg.text ? 8 : 0, cursor: "zoom-in" }} onClick={() => window.open(msg.mediaUrl, "_blank")} />
+                        ) : null}
+                        {msg.text && <p dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.text) }} style={{ margin: 0, lineHeight: 1.5 }} />}
+                      </>
+                    )}
+
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 4 }}>
+                      {msg.isEdited && <span style={{ fontSize: "10px", opacity: 0.6, fontStyle: "italic", marginRight: 4 }}>(edited)</span>}
                       <span style={{ fontSize: "10px", opacity: 0.6 }}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
