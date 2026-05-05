@@ -318,57 +318,59 @@ export default function App() {
   return (
     <main className="reddit-shell">
       <header className="site-header">
-        <div className="site-brand" onClick={() => setView("feed")} style={{ cursor: "pointer" }}>threadspace</div>
-        <div className="header-search">
-          <span className="header-search-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          </span>
-          <input
-            type="text" placeholder="Search Threadspace" value={headerSearch}
-            onFocus={() => setView("search")}
-            onChange={(e) => { setHeaderSearch(e.target.value); setView("search"); }}
-          />
-        </div>
-        <nav className="site-nav">
-          <button className={view === "feed" ? "nav-link active" : "nav-link"} onClick={() => { setSelectedCommunity(""); setView("feed"); }}>Home</button>
-          <button className={view === "saved" ? "nav-link active" : "nav-link"} onClick={() => setView("saved")}>Saved</button>
-          <button className={view === "create" ? "nav-link active" : "nav-link"} onClick={() => setView("create")}>Post</button>
-          <button className={view === "subreddits" ? "nav-link active" : "nav-link"} onClick={() => setView("subreddits")}>Communities</button>
-        </nav>
-        
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div className="account-menu-wrap">
-            <button className="account-icon" onClick={() => { setShowNotifications(!showNotifications); markNotificationsRead(); }}>
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
-              {unreadNotificationsCount > 0 && <span className="badge">{unreadNotificationsCount}</span>}
-            </button>
-            {showNotifications && (
-              <div className="account-menu" style={{ right: 0, top: 48, minWidth: 300, maxHeight: 400, overflowY: "auto" }}>
-                <div className="account-menu-label">Notifications</div>
-                {notifications.length ? notifications.map(n => (
-                  <div key={n.id} style={{ padding: "12px", borderTop: "1px solid var(--border)" }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{n.title}</div>
-                    <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{n.message}</div>
-                  </div>
-                )) : <div style={{ padding: 12, textAlign: "center", color: "var(--text-muted)" }}>No notifications</div>}
-              </div>
-            )}
+        <div className="header-inner">
+          <div className="site-brand" onClick={() => setView("feed")}>threadspace</div>
+          <div className="header-search">
+            <span className="header-search-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            </span>
+            <input
+              type="text" placeholder="Search Threadspace" value={headerSearch}
+              onFocus={() => setView("search")}
+              onChange={(e) => { setHeaderSearch(e.target.value); setView("search"); }}
+            />
           </div>
-
-          <div className="account-menu-wrap">
-            <button className="account-icon" onClick={() => setShowAccountMenu(!showAccountMenu)}>
-              {accountProfile.avatar ? <img src={accountProfile.avatar} style={{ width: "100%", height: "100%", borderRadius: "50%" }} /> : accountName.charAt(0)}
-            </button>
-            {showAccountMenu && (
-              <div className="account-menu" style={{ right: 0, top: 48 }}>
-                <div className="account-menu-label">Signed in as</div>
-                <div className="account-menu-value" style={{ fontWeight: 800 }}>{accountName}</div>
-                <div className="account-menu-actions" style={{ marginTop: 12 }}>
-                  <button onClick={() => { setView("settings"); setShowAccountMenu(false); }}>Settings</button>
-                  <button onClick={signOut} style={{ color: "var(--danger)" }}>Sign Out</button>
+          <nav className="site-nav">
+            <button className={view === "feed" ? "nav-link active" : "nav-link"} onClick={() => { setSelectedCommunity(""); setView("feed"); }}>Home</button>
+            <button className={view === "saved" ? "nav-link active" : "nav-link"} onClick={() => setView("saved")}>Saved</button>
+            <button className={view === "create" ? "nav-link active" : "nav-link"} onClick={() => setView("create")}>Post</button>
+            <button className={view === "subreddits" ? "nav-link active" : "nav-link"} onClick={() => setView("subreddits")}>Communities</button>
+          </nav>
+          
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <div className="account-menu-wrap">
+              <button className="account-icon" onClick={() => { setShowNotifications(!showNotifications); markNotificationsRead(); }}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+                {unreadNotificationsCount > 0 && <span className="badge">{unreadNotificationsCount}</span>}
+              </button>
+              {showNotifications && (
+                <div className="account-menu" style={{ minWidth: 300, maxHeight: 400, overflowY: "auto" }}>
+                  <div className="account-menu-label">Notifications</div>
+                  {notifications.length ? notifications.map(n => (
+                    <div key={n.id} style={{ padding: "12px", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{n.title}</div>
+                      <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>{n.message}</div>
+                    </div>
+                  )) : <div style={{ padding: 12, textAlign: "center", color: "var(--text-muted)" }}>No notifications</div>}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            <div className="account-menu-wrap">
+              <button className="account-icon" onClick={() => setShowAccountMenu(!showAccountMenu)}>
+                {accountProfile.avatar ? <img src={accountProfile.avatar} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : accountName.charAt(0)}
+              </button>
+              {showAccountMenu && (
+                <div className="account-menu">
+                  <div className="account-menu-label">Signed in as</div>
+                  <div className="account-menu-value">{accountName}</div>
+                  <div className="account-menu-actions">
+                    <button onClick={() => { setView("settings"); setShowAccountMenu(false); }}>Settings</button>
+                    <button onClick={signOut} style={{ color: "var(--danger)" }}>Sign Out</button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
