@@ -81,6 +81,7 @@ export default function App() {
   const [mediaPreview, setMediaPreview] = useState("");
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaUploading, setMediaUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [msgError, setMsgError] = useState("");
 
   // --- Reset Password State ---
@@ -288,10 +289,14 @@ export default function App() {
       let mediaType = "";
       if (currentMediaFile) {
         setMediaUploading(true);
-        const uploadData = await api.uploadMedia(currentMediaFile);
+        setUploadProgress(0);
+        const uploadData = await api.uploadMediaWithProgress(currentMediaFile, (pct) => {
+          setUploadProgress(pct);
+        });
         mediaUrl = uploadData.url;
         mediaType = currentMediaFile.type.startsWith("video") ? "video" : "image";
         setMediaUploading(false);
+        setUploadProgress(0);
       }
       const data = await api.sendMessage({
         fromEmail: from,
@@ -520,6 +525,7 @@ export default function App() {
               mediaUploading={mediaUploading} msgDraft={msgDraft} setMsgDraft={setMsgDraft}
               sendMessage={sendMessage} isOtherOnline={isOtherOnline}
               typingUsers={typingUsers} sendTyping={sendTyping} sendStopTyping={sendStopTyping}
+              uploadProgress={uploadProgress}
             />
           )}
 

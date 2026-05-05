@@ -129,7 +129,8 @@ export function ThreadView({
   isOtherOnline,
   typingUsers,
   sendTyping,
-  sendStopTyping
+  sendStopTyping,
+  uploadProgress
 }) {
   const isTyping = typingUsers.has(activeConv);
   const typingTimeoutRef = React.useRef(null);
@@ -285,6 +286,14 @@ export function ThreadView({
                ? <video src={mediaPreview} style={{ height: 100, borderRadius: "14px", border: "2px solid var(--accent)" }} />
                : <img src={mediaPreview} alt="preview" style={{ height: 100, borderRadius: "14px", border: "2px solid var(--accent)" }} />
              }
+             {mediaUploading && (
+               <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", borderRadius: "14px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white" }}>
+                 <div style={{ width: "80%", height: 6, background: "rgba(255,255,255,0.3)", borderRadius: 3, overflow: "hidden", marginBottom: 8 }}>
+                   <div style={{ width: `${uploadProgress}%`, height: "100%", background: "var(--accent)", transition: "width 0.2s" }} />
+                 </div>
+                 <span style={{ fontSize: "12px", fontWeight: 800 }}>{uploadProgress}%</span>
+               </div>
+             )}
              <button type="button" onClick={clearMedia} style={{ position: "absolute", top: -8, right: -8, width: 24, height: 24, borderRadius: "50%", background: "var(--danger)", border: "2px solid var(--bg-card)", color: "white", cursor: "pointer", fontWeight: 800 }}>&times;</button>
           </div>
         )}
@@ -336,7 +345,7 @@ export function ThreadView({
             style={{ borderRadius: "50%", width: 44, height: 44, padding: 0, flexShrink: 0, transition: "all 0.2s" }}
           >
             {mediaUploading
-              ? <div style={{ width: 18, height: 18, border: "2px solid white", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+              ? <div style={{ fontSize: "10px", fontWeight: 800 }}>{uploadProgress}%</div>
               : <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
             }
           </button>
