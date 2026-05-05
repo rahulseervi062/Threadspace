@@ -255,7 +255,7 @@ export default function App() {
   };
 
   const sendMessage = async () => {
-    if (!msgDraft.trim() && !mediaFile) return;
+    if (!msgDraft.trim() && !mediaFile && !mediaPreview) return;
 
     // Capture ALL values upfront before any state changes
     let text = msgDraft.trim();
