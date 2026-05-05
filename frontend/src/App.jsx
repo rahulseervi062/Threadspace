@@ -312,6 +312,8 @@ export default function App() {
       }
     } catch (err) {
       setMsgError(err.message);
+      // Remove the optimistic message if it failed
+      setThreadMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
     } finally {
       setMsgLoading(false);
       setMediaUploading(false);
