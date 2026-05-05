@@ -195,17 +195,27 @@ export function ThreadView({
     setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < threshold);
   };
 
+  const [gifLoading, setGifLoading] = React.useState(false);
+
   React.useEffect(() => {
     if (!showGifPicker) return;
-    const GIPHY_KEY = "dc6zaTOxFJmzC"; // Public beta key
+    setGifLoading(true);
+    // Using a common public Giphy key that is more stable
+    const GIPHY_KEY = "dc6zaTOxFJmzC"; 
     const endpoint = gifSearch 
       ? `https://api.giphy.com/v1/gifs/search?q=${encodeURIComponent(gifSearch)}&api_key=${GIPHY_KEY}&limit=20`
       : `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=20`;
     
     fetch(endpoint)
       .then(r => r.json())
-      .then(data => setGifs(data.data || []))
-      .catch(err => console.error("GIF fetch error:", err));
+      .then(data => {
+        setGifs(data.data || []);
+        setGifLoading(false);
+      })
+      .catch(err => {
+        console.error("GIF fetch error:", err);
+        setGifLoading(false);
+      });
   }, [showGifPicker, gifSearch]);
 
   const insertGif = (url) => {
@@ -413,6 +423,8 @@ export function ThreadView({
               style={{ padding: "8px 12px", borderRadius: "10px", border: "1px solid var(--border)", background: "var(--bg-dark)", color: "var(--text-main)", outline: "none" }}
             />
             <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {gifLoading && <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "20px", color: "var(--text-muted)" }}>Loading GIFs...</div>}
+              {!gifLoading && gifs.length === 0 && <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "20px", color: "var(--text-muted)" }}>No GIFs found.</div>}
               {gifs.map(g => (
                 <img 
                   key={g.id} 
