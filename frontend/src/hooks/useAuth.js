@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { toast } from "react-hot-toast";
 import { api } from "../services/api";
 
 export function useAuth() {
@@ -37,9 +38,11 @@ export function useAuth() {
         localStorage.setItem("ts_auth", "true");
         localStorage.setItem("ts_name", data.user.name);
         localStorage.setItem("ts_email", data.user.email);
+        toast.success(authMode === "login" ? `Welcome back, ${data.user.name}!` : "Account created! Welcome to Threadspace.");
         setStatus({ loading: false, type: "success", message: "Success! Redirecting..." });
       }
     } catch (err) {
+      toast.error(err.message);
       setStatus({ loading: false, type: "error", message: err.message });
     }
   };

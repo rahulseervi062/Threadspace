@@ -1235,11 +1235,31 @@ app.get("/api/search", async (req, res) => {
    });
  });
  
- app.get("/api/posts", async (_req, res) => {
-   const posts = await readPosts();
+ app.get("/api/posts", async (req, res) => {
+   const page = parseInt(req.query.page) || 1;
+   const limit = parseInt(req.query.limit) || 10;
+   const skip = (page - 1) * limit;
+
+   const total = await Post.countDocuments();
+   const posts = await Post.find({})
+     .sort({ createdAt: -1 })
+     .skip(skip)
+     .limit(limit)
+     .lean();
+
    res.json({
      ok: true,
-     posts
+     posts: posts.map(post => ({
+       likes: 0,
+       dislikes: 0,
+       comments: [],
+       likedBy: [],
+       dislikedBy: [],
+       savedBy: [],
+       ...post
+     })),
+     hasMore: skip + posts.length < total,
+     total
    });
  });
  

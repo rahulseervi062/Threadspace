@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Toaster, toast } from "react-hot-toast";
 import "./styles.css";
 
 // Services & Hooks
@@ -112,7 +113,9 @@ export default function App() {
 
   useEffect(() => {
     if (view === "thread") messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [threadMessages, view]);
+    if (view === "trending") loadTrendingPosts();
+    if (view === "recommended") loadRecommendedPosts();
+  }, [threadMessages, view, loadTrendingPosts, loadRecommendedPosts]);
 
   // --- API Wrappers ---
   const loadAccount = async () => {
@@ -317,6 +320,7 @@ export default function App() {
 
   return (
     <main className="reddit-shell">
+      <Toaster position="top-right" toastOptions={{ duration: 3000, style: { background: "var(--bg-card)", color: "var(--text-main)", border: "1px solid var(--border)", backdropFilter: "var(--glass-blur)" } }} />
       <header className="site-header">
         <div className="header-inner">
           <div className="site-brand" onClick={() => setView("feed")}>threadspace</div>
@@ -332,9 +336,9 @@ export default function App() {
           </div>
           <nav className="site-nav">
             <button className={view === "feed" ? "nav-link active" : "nav-link"} onClick={() => { setSelectedCommunity(""); setView("feed"); }}>Home</button>
+            <button className={view === "trending" ? "nav-link active" : "nav-link"} onClick={() => setView("trending")}>Trending</button>
+            <button className={view === "recommended" ? "nav-link active" : "nav-link"} onClick={() => setView("recommended")}>For You</button>
             <button className={view === "saved" ? "nav-link active" : "nav-link"} onClick={() => setView("saved")}>Saved</button>
-            <button className={view === "create" ? "nav-link active" : "nav-link"} onClick={() => setView("create")}>Post</button>
-            <button className={view === "subreddits" ? "nav-link active" : "nav-link"} onClick={() => setView("subreddits")}>Communities</button>
           </nav>
           
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -410,6 +414,7 @@ export default function App() {
               startEditPost={(p) => { setEditingPostId(p.id); setEditPost({ caption: p.caption, subreddit: p.subreddit, imageUrl: p.imageUrl }); }}
               cancelEditPost={() => setEditingPostId(null)} handleEditPostImage={() => {}} handleEditPostSubmit={() => {}}
               title={selectedCommunity ? `r/${selectedCommunity}` : "Home Feed"}
+              hasMore={hasMore} loadMorePosts={loadMorePosts}
             />
           )}
 
@@ -423,6 +428,35 @@ export default function App() {
               setCommentDrafts={setCommentDrafts} setReplyDrafts={setReplyDrafts}
               handleCommentSubmit={handleCommentSubmit} handleReplySubmit={handleReplySubmit}
               title="Saved Posts"
+              hasMore={false} loadMorePosts={() => {}}
+            />
+          )}
+
+          {view === "trending" && (
+            <FeedView
+              postsLoading={postsLoading} posts={trendingPosts} postStatus={postStatus} setView={setView}
+              accountEmail={accountEmail} openUserProfile={openUserProfile} openCommunity={openCommunity}
+              handleReaction={handleReaction} openComments={openComments} toggleComments={(id) => setOpenComments(c => ({...c, [id]: !c[id]}))}
+              handleSave={handleSave} handleShare={() => {}} handleDelete={handleDelete}
+              commentErrors={commentErrors} commentDrafts={commentDrafts} replyDrafts={replyDrafts}
+              setCommentDrafts={setCommentDrafts} setReplyDrafts={setReplyDrafts}
+              handleCommentSubmit={handleCommentSubmit} handleReplySubmit={handleReplySubmit}
+              title="Trending Posts" description="Most popular posts in the last 24 hours."
+              hasMore={false} loadMorePosts={() => {}}
+            />
+          )}
+
+          {view === "recommended" && (
+            <FeedView
+              postsLoading={postsLoading} posts={recommendedPosts} postStatus={postStatus} setView={setView}
+              accountEmail={accountEmail} openUserProfile={openUserProfile} openCommunity={openCommunity}
+              handleReaction={handleReaction} openComments={openComments} toggleComments={(id) => setOpenComments(c => ({...c, [id]: !c[id]}))}
+              handleSave={handleSave} handleShare={() => {}} handleDelete={handleDelete}
+              commentErrors={commentErrors} commentDrafts={commentDrafts} replyDrafts={replyDrafts}
+              setCommentDrafts={setCommentDrafts} setReplyDrafts={setReplyDrafts}
+              handleCommentSubmit={handleCommentSubmit} handleReplySubmit={handleReplySubmit}
+              title="For You" description="Recommended posts based on your interests."
+              hasMore={false} loadMorePosts={() => {}}
             />
           )}
 
@@ -444,12 +478,14 @@ export default function App() {
 
           {view === "thread" && (
             <ThreadView
-              activeConvName={activeConvName} accountEmail={accountEmail} threadMessages={threadMessages}
+              activeConvName={activeConvName} accountEmail={accountEmail} activeConv={activeConv}
+              threadMessages={threadMessages}
               loadConversations={loadConversations} setView={setView} messagesEndRef={messagesEndRef}
               msgError={msgError} mediaPreview={mediaPreview} mediaFile={mediaFile} clearMedia={() => { setMediaFile(null); setMediaPreview(""); }}
               fileInputRef={fileInputRef} handleMediaSelect={handleMediaSelect} msgLoading={msgLoading}
               mediaUploading={mediaUploading} msgDraft={msgDraft} setMsgDraft={setMsgDraft}
               sendMessage={sendMessage} isOtherOnline={isOtherOnline}
+              typingUsers={typingUsers} sendTyping={sendTyping} sendStopTyping={sendStopTyping}
             />
           )}
 

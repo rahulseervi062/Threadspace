@@ -1,4 +1,5 @@
 import React from "react";
+import { parseMarkdown } from "../utils/markdown";
 
 export function MessagesView({ conversations, openConversation, getMessagePreview, unreadConversationCount }) {
   return (
@@ -54,6 +55,7 @@ export function MessagesView({ conversations, openConversation, getMessagePrevie
 export function ThreadView({
   activeConvName,
   accountEmail,
+  activeConv,
   threadMessages,
   loadConversations,
   setView,
@@ -69,8 +71,27 @@ export function ThreadView({
   msgDraft,
   setMsgDraft,
   sendMessage,
-  isOtherOnline
+  isOtherOnline,
+  typingUsers,
+  sendTyping,
+  sendStopTyping
 }) {
+  const isTyping = typingUsers.has(activeConv);
+  const typingTimeoutRef = React.useRef(null);
+
+  const handleTextChange = (e) => {
+    const val = e.target.value;
+    setMsgDraft(val);
+
+    if (activeConv) {
+      sendTyping(activeConv);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        sendStopTyping(activeConv);
+      }, 3000);
+    }
+  };
+
   return (
     <div className="content-card chat-window" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 120px)" }}>
       <div className="section-head" style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--border)" }}>
@@ -109,12 +130,17 @@ export function ThreadView({
               ) : msg.mediaUrl ? (
                 <img src={msg.mediaUrl} alt="media" style={{ maxWidth: "100%", borderRadius: "12px", marginBottom: msg.text ? 8 : 0, cursor: "zoom-in" }} onClick={() => window.open(msg.mediaUrl, "_blank")} />
               ) : null}
-              {msg.text && <p>{msg.text}</p>}
+              {msg.text && <p dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.text) }} />}
               <div style={{ fontSize: "10px", opacity: 0.7, marginTop: 4, textAlign: "right" }}>
                 {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </div>
             </div>
           ))
+        )}
+        {isTyping && (
+          <div className="message-bubble message-received" style={{ opacity: 0.8, fontSize: "0.85rem", fontStyle: "italic", padding: "8px 12px" }}>
+            {activeConvName} is typing...
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -141,7 +167,7 @@ export function ThreadView({
             style={{ flex: 1, background: "transparent", border: "none", color: "var(--text-main)", resize: "none", padding: "10px 0", maxHeight: "120px", outline: "none" }}
             placeholder={mediaUploading ? "Uploading media..." : "Type your message..."}
             value={msgDraft}
-            onChange={(e) => setMsgDraft(e.target.value)}
+            onChange={handleTextChange}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
           />
           <button 

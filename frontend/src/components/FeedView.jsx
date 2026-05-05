@@ -1,4 +1,5 @@
 import React from "react";
+import { parseMarkdown } from "../utils/markdown";
 
 export function PostSkeleton() {
   return (
@@ -45,8 +46,22 @@ export function FeedView({
   handleEditPostImage,
   handleEditPostSubmit,
   title = "Home Feed",
-  description = "Browse recent posts from your communities."
+  description = "Browse recent posts from your communities.",
+  hasMore,
+  loadMorePosts
 }) {
+  const observer = React.useRef();
+  const lastPostRef = React.useCallback(node => {
+    if (postsLoading) return;
+    if (observer.current) observer.current.disconnect();
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        loadMorePosts();
+      }
+    });
+    if (node) observer.current.observe(node);
+  }, [postsLoading, hasMore, loadMorePosts]);
+
   return (
     <div className="content-card">
       <div className="section-head" style={{ marginBottom: "24px" }}>
@@ -64,16 +79,11 @@ export function FeedView({
         <div className={`feedback ${postStatus.type}`} style={{ marginBottom: 20 }}>{postStatus.message}</div>
       ) : null}
 
-      {postsLoading ? (
-        <div className="feed-page">
-          <PostSkeleton />
-          <PostSkeleton />
-          <PostSkeleton />
-        </div>
-      ) : posts.length ? (
-        <div className="feed-page">
-          {(Array.isArray(posts) ? posts : []).map((item) => (
-            <article className="feed-card" key={item.id} id={`post-${item.id}`}>
+      <div className="feed-page">
+        {(Array.isArray(posts) ? posts : []).map((item, index) => {
+          const isLast = index === posts.length - 1;
+          return (
+            <article className="feed-card" key={item.id} id={`post-${item.id}`} ref={isLast ? lastPostRef : null}>
               <div className="post-header">
                 <div className="post-community-avatar">
                   {item.subreddit?.charAt(0).toUpperCase()}
@@ -106,7 +116,7 @@ export function FeedView({
                 </div>
               ) : (
                 <>
-                  <p className="post-caption">{item.caption}</p>
+                  <p className="post-caption" dangerouslySetInnerHTML={{ __html: parseMarkdown(item.caption) }} />
                   {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
                 </>
               )}
@@ -188,7 +198,7 @@ export function FeedView({
                       {(Array.isArray(item.comments) ? item.comments : []).map((comment) => (
                         <div className="comment-item" key={comment.id} style={{ background: "var(--bg-dark)", padding: "12px", borderRadius: "10px", marginBottom: "8px" }}>
                           <span className="comment-author">{comment.authorName}</span>
-                          <p className="comment-text" style={{ fontSize: "0.9rem" }}>{comment.text}</p>
+                          <p className="comment-text" style={{ fontSize: "0.9rem" }} dangerouslySetInnerHTML={{ __html: parseMarkdown(comment.text) }} />
                           
                           <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
                             {Array.isArray(comment.replies) && comment.replies.length ? (
@@ -196,7 +206,7 @@ export function FeedView({
                                 {comment.replies.map((reply) => (
                                   <div key={reply.id}>
                                     <span className="comment-author" style={{ fontSize: "0.8rem" }}>{reply.authorName}</span>
-                                    <p className="comment-text" style={{ fontSize: "0.85rem" }}>{reply.text}</p>
+                                    <p className="comment-text" style={{ fontSize: "0.85rem" }} dangerouslySetInnerHTML={{ __html: parseMarkdown(reply.text) }} />
                                   </div>
                                 ))}
                               </div>
@@ -220,9 +230,23 @@ export function FeedView({
                 </div>
               ) : null}
             </article>
-          ))}
+          );
+        })}
+      </div>
+
+      {postsLoading && (
+        <div className="feed-page" style={{ marginTop: 20 }}>
+          <PostSkeleton />
         </div>
-      ) : (
+      )}
+
+      {!hasMore && posts.length > 0 && (
+        <div className="search-empty" style={{ padding: "40px 0", opacity: 0.5 }}>
+          You've reached the end of the galaxy. 🌌
+        </div>
+      )}
+      
+      {!postsLoading && posts.length === 0 && (
         <div className="empty-preview">No posts yet. Create one to start your feed.</div>
       )}
     </div>

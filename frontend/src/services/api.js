@@ -47,7 +47,7 @@ export const api = {
   }).then(handleResponse),
 
   // Posts
-  getPosts: () => fetch(`${API_BASE}/api/posts`).then(handleResponse),
+  getPosts: (page = 1, limit = 10) => fetch(`${API_BASE}/api/posts?page=${page}&limit=${limit}`).then(handleResponse),
   getTrendingPosts: () => fetch(`${API_BASE}/api/posts/trending`).then(handleResponse),
   getRecommendedPosts: (email) => fetch(`${API_BASE}/api/posts/recommended?userEmail=${encodeURIComponent(email)}`).then(handleResponse),
   

@@ -1,24 +1,55 @@
 import { useState, useCallback } from "react";
+import { toast } from "react-hot-toast";
 import { api } from "../services/api";
 
 export function usePosts(accountEmail) {
   const [posts, setPosts] = useState([]);
+  const [trendingPosts, setTrendingPosts] = useState([]);
+  const [recommendedPosts, setRecommendedPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
   const [postStatus, setPostStatus] = useState({ loading: false, type: "", message: "" });
   const [subreddits, setSubreddits] = useState([]);
   const [followingSubreddits, setFollowingSubreddits] = useState([]);
 
-  const loadPosts = useCallback(async () => {
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+
+  const loadPosts = useCallback(async (isInitial = true) => {
+    if (isInitial) setPostsLoading(true);
+    const targetPage = isInitial ? 1 : page + 1;
+    
+    try {
+      const data = await api.getPosts(targetPage);
+      if (data.ok) {
+        setPosts(prev => isInitial ? data.posts : [...prev, ...data.posts]);
+        setHasMore(data.hasMore);
+        setPage(targetPage);
+      }
+    } catch (err) {
+      toast.error("Failed to load posts");
+    } finally {
+      if (isInitial) setPostsLoading(false);
+    }
+  }, [page]);
+
+  const loadTrendingPosts = useCallback(async () => {
     setPostsLoading(true);
     try {
-      const data = await api.getPosts();
-      setPosts(data.posts || []);
-    } catch (err) {
-      setPostStatus({ loading: false, type: "error", message: "Failed to load posts" });
-    } finally {
-      setPostsLoading(false);
-    }
+      const data = await api.getTrendingPosts();
+      if (data.ok) setTrendingPosts(data.posts || []);
+    } catch (err) {}
+    finally { setPostsLoading(false); }
   }, []);
+
+  const loadRecommendedPosts = useCallback(async () => {
+    if (!accountEmail) return;
+    setPostsLoading(true);
+    try {
+      const data = await api.getRecommendedPosts(accountEmail);
+      if (data.ok) setRecommendedPosts(data.posts || []);
+    } catch (err) {}
+    finally { setPostsLoading(false); }
+  }, [accountEmail]);
 
   const loadSubreddits = useCallback(async () => {
     try {
@@ -32,8 +63,11 @@ export function usePosts(accountEmail) {
       const data = await api.reactToPost(postId, accountEmail, type);
       if (data.ok) {
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...data.post } : p));
+        toast.success(type === "like" ? "Upvoted!" : "Downvoted!");
       }
-    } catch (err) {}
+    } catch (err) {
+      toast.error("Failed to update reaction");
+    }
   };
 
   const handleSave = async (postId) => {
@@ -41,8 +75,12 @@ export function usePosts(accountEmail) {
       const data = await api.savePost(postId, accountEmail);
       if (data.ok) {
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...data.post } : p));
+        const isSaved = data.post.savedBy?.includes(accountEmail);
+        toast.success(isSaved ? "Post saved!" : "Post unsaved!");
       }
-    } catch (err) {}
+    } catch (err) {
+      toast.error("Failed to save post");
+    }
   };
 
   const handleDelete = async (postId) => {
@@ -51,8 +89,11 @@ export function usePosts(accountEmail) {
       const data = await api.deletePost(postId);
       if (data.ok) {
         setPosts(prev => prev.filter(p => p.id !== postId));
+        toast.success("Post deleted");
       }
-    } catch (err) {}
+    } catch (err) {
+      toast.error("Failed to delete post");
+    }
   };
 
   const handleToggleSubredditFollow = async (name) => {
@@ -79,6 +120,12 @@ export function usePosts(accountEmail) {
     handleReaction,
     handleSave,
     handleDelete,
-    handleToggleSubredditFollow
+    handleToggleSubredditFollow,
+    hasMore,
+    loadMorePosts: () => loadPosts(false),
+    trendingPosts,
+    recommendedPosts,
+    loadTrendingPosts,
+    loadRecommendedPosts
   };
 }

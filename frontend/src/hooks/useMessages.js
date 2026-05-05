@@ -53,7 +53,24 @@ export function useMessages(accountEmail, accountName) {
       }
     });
 
-    return () => socket.disconnect();
+    socket.on("typing", ({ fromEmail }) => {
+      setTypingUsers(prev => new Set([...prev, fromEmail]));
+    });
+
+    socket.on("stopTyping", ({ fromEmail }) => {
+      setTypingUsers(prev => {
+        const next = new Set(prev);
+        next.delete(fromEmail);
+        return next;
+      });
+    });
+
+    return () => {
+      socket.off("newMessage");
+      socket.off("typing");
+      socket.off("stopTyping");
+      socket.disconnect();
+    };
   }, [accountEmail, activeConv]);
 
   const loadConversations = useCallback(async () => {
@@ -77,6 +94,14 @@ export function useMessages(accountEmail, accountName) {
     } catch (err) {}
   };
 
+  const sendTyping = (toEmail) => {
+    socketRef.current?.emit("typing", { fromEmail: accountEmail, toEmail });
+  };
+
+  const sendStopTyping = (toEmail) => {
+    socketRef.current?.emit("stopTyping", { fromEmail: accountEmail, toEmail });
+  };
+
   return {
     conversations,
     activeConv,
@@ -85,6 +110,8 @@ export function useMessages(accountEmail, accountName) {
     typingUsers,
     loadConversations,
     openConversation,
-    setThreadMessages
+    setThreadMessages,
+    sendTyping,
+    sendStopTyping
   };
 }
