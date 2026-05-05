@@ -146,9 +146,32 @@ export function ThreadView({
   // Sync contentEditable with msgDraft (for clearing after send)
   React.useEffect(() => {
     if (richInputRef.current && richInputRef.current.textContent !== msgDraft) {
-      if (msgDraft === "") richInputRef.current.textContent = "";
+      if (msgDraft === "") {
+        richInputRef.current.textContent = "";
+        richInputRef.current.innerHTML = "";
+      }
     }
   }, [msgDraft]);
+
+  // Use MutationObserver to catch keyboard GIF insertions (the "nuclear" option)
+  React.useEffect(() => {
+    if (!richInputRef.current) return;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "childList") {
+          const img = richInputRef.current.querySelector("img");
+          if (img) {
+            const src = img.src;
+            img.remove();
+            handleMediaSelect(null, src);
+            setMsgDraft(richInputRef.current.textContent);
+          }
+        }
+      }
+    });
+    observer.observe(richInputRef.current, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [handleMediaSelect, setMsgDraft]);
 
   const handleScroll = () => {
     const el = chatContainerRef.current;
@@ -372,9 +395,11 @@ export function ThreadView({
 
           <div
             ref={richInputRef}
-            contentEditable
+            contentEditable="true"
+            inputMode="text"
             role="textbox"
             aria-multiline="true"
+            spellCheck="false"
             className="rich-input"
             style={{ 
               flex: 1, background: "transparent", border: "none", color: "var(--text-main)", 
@@ -383,15 +408,7 @@ export function ThreadView({
             }}
             data-placeholder={mediaUploading ? "Uploading media..." : "Type a message..."}
             onInput={(e) => {
-              const div = e.currentTarget;
-              // Check for images inserted by keyboard (Gboard GIFs)
-              const img = div.querySelector("img");
-              if (img) {
-                const src = img.src;
-                img.remove();
-                handleMediaSelect(null, src);
-              }
-              setMsgDraft(div.textContent);
+              setMsgDraft(e.currentTarget.textContent);
             }}
             onKeyDown={(e) => { 
               if (e.key === "Enter" && !e.shiftKey) { 
