@@ -47,7 +47,8 @@ export function useMessages(accountEmail, accountName) {
           } : c).sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
         });
 
-        if (activeConv === otherEmail) {
+        // Only add to thread if it's from the OTHER person (our own msgs are added optimistically)
+        if (activeConv === otherEmail && message.fromEmail !== accountEmail) {
           setThreadMessages(prev => [...prev, message]);
         }
       }

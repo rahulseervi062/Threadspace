@@ -248,15 +248,40 @@ export default function App() {
 
   const sendMessage = async () => {
     if (!msgDraft.trim() && !mediaFile) return;
-    setMsgLoading(true);
+    const text = msgDraft.trim();
+    const currentMediaFile = mediaFile;
+    const currentMediaPreview = mediaPreview;
+
+    // Optimistic: show message instantly
+    const optimisticMsg = {
+      id: Date.now(),
+      fromEmail: accountEmail,
+      fromName: accountName,
+      toEmail: activeConv,
+      toName: activeConvName,
+      text,
+      mediaUrl: currentMediaPreview || "",
+      mediaType: currentMediaFile?.type.startsWith("video") ? "video" : currentMediaFile ? "image" : "",
+      createdAt: new Date().toISOString(),
+      read: false,
+      _optimistic: true
+    };
+
+    // Clear inputs immediately
+    setMsgDraft("");
+    setMediaFile(null);
+    setMediaPreview("");
+    setThreadMessages(prev => [...prev, optimisticMsg]);
+
+    // Send in background
     try {
       let mediaUrl = "";
       let mediaType = "";
-      if (mediaFile) {
+      if (currentMediaFile) {
         setMediaUploading(true);
-        const data = await api.uploadMedia(mediaFile);
-        mediaUrl = data.url;
-        mediaType = mediaFile.type.startsWith("video") ? "video" : "image";
+        const uploadData = await api.uploadMedia(currentMediaFile);
+        mediaUrl = uploadData.url;
+        mediaType = currentMediaFile.type.startsWith("video") ? "video" : "image";
         setMediaUploading(false);
       }
       const data = await api.sendMessage({
@@ -264,19 +289,19 @@ export default function App() {
         fromName: accountName,
         toEmail: activeConv,
         toName: activeConvName,
-        text: msgDraft.trim(),
+        text,
         mediaUrl,
         mediaType
       });
       if (data.ok) {
-        setMsgDraft("");
-        setMediaFile(null);
-        setMediaPreview("");
+        // Replace optimistic message with real one
+        setThreadMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...data.message, _optimistic: false } : m));
       }
     } catch (err) {
       setMsgError(err.message);
     } finally {
       setMsgLoading(false);
+      setMediaUploading(false);
     }
   };
 
