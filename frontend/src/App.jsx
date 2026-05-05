@@ -293,7 +293,7 @@ export default function App() {
         const uploadData = await api.uploadMediaWithProgress(currentMediaFile, (pct) => {
           setUploadProgress(pct);
         });
-        mediaUrl = uploadData.url;
+        mediaUrl = uploadData.mediaUrl;
         mediaType = currentMediaFile.type.startsWith("video") ? "video" : "image";
         setMediaUploading(false);
         setUploadProgress(0);
