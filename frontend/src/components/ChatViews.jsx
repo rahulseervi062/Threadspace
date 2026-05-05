@@ -163,7 +163,19 @@ export function ThreadView({
           if (img) {
             const src = img.src;
             img.remove();
-            handleMediaSelect(null, src);
+            
+            if (src.startsWith("blob:")) {
+              // Handle local temporary blobs from keyboards/stickers
+              fetch(src)
+                .then(r => r.blob())
+                .then(blob => {
+                  const file = new File([blob], "keyboard_media.gif", { type: blob.type });
+                  handleMediaSelect({ target: { files: [file] } });
+                })
+                .catch(() => handleMediaSelect(null, src));
+            } else {
+              handleMediaSelect(null, src);
+            }
             setMsgDraft(richInputRef.current.textContent);
           }
         }
