@@ -107,30 +107,34 @@ export function MessagesView({ conversations, openConversation, getMessagePrevie
   );
 }
 
-export function ThreadView({
-  activeConvName,
-  accountEmail,
-  activeConv,
+const SAFE_GIFS = [
+  { id: "s1", url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJ1dnZ6bmZueXpueXpueXpueXpueXpueXpueXpueXpueXpueXpueCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7TKURmP55o6Y8Auk/giphy.gif" },
+  { id: "s2", url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJ1dnZ6bmZueXpueXpueXpueXpueXpueXpueXpueXpueXpueXpueCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/C2ZTo4wP9W7PZ9UfK/giphy.gif" },
+  { id: "s3", url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJ1dnZ6bmZueXpueXpueXpueXpueXpueXpueXpueXpueXpueXpueCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/vFKqnCdLPNOKc/giphy.gif" },
+  { id: "s4", url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJ1dnZ6bmZueXpueXpueXpueXpueXpueXpueXpueXpueXpueXpueCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/ICOgUNo11XxgS0RshV/giphy.gif" }
+];
+
+export function ThreadView({ 
+  activeConv, 
+  activeConvName, 
+  accountEmail, 
+  accountName,
   threadMessages,
-  loadConversations,
-  setView,
-  messagesEndRef,
-  msgError,
-  mediaPreview,
-  mediaFile,
-  clearMedia,
-  fileInputRef,
-  handleMediaSelect,
-  msgLoading,
-  mediaUploading,
+  setThreadMessages,
   msgDraft,
   setMsgDraft,
+  mediaFile,
+  setMediaFile,
+  mediaPreview,
+  setMediaPreview,
+  mediaUploading,
+  setMediaUploading,
+  uploadProgress,
+  setUploadProgress,
   sendMessage,
-  isOtherOnline,
+  handleMediaSelect,
   typingUsers,
   sendTyping,
-  sendStopTyping,
-  uploadProgress,
   handleDeleteMessage,
   handleEditMessage
 }) {
@@ -209,11 +213,20 @@ export function ThreadView({
     fetch(endpoint)
       .then(r => r.json())
       .then(data => {
-        setGifs(data.data || []);
+        const results = (data.data || []).map(g => ({
+          id: g.id,
+          thumb: g.images?.fixed_height_small?.url,
+          full: g.images?.original?.url
+        }));
+        // Merge with safe ones to guarantee content
+        const safeOnes = SAFE_GIFS.map(s => ({ id: s.id, thumb: s.url, full: s.url }));
+        setGifs([...safeOnes, ...results]);
         setGifLoading(false);
       })
       .catch(err => {
         console.error("GIF fetch error:", err);
+        const safeOnes = SAFE_GIFS.map(s => ({ id: s.id, thumb: s.url, full: s.url }));
+        setGifs(safeOnes); // Fallback to safe ones only
         setGifLoading(false);
       });
   }, [showGifPicker, gifSearch]);
@@ -428,8 +441,8 @@ export function ThreadView({
               {gifs.map(g => (
                 <img 
                   key={g.id} 
-                  src={g.images?.fixed_height_small?.url} 
-                  onClick={() => insertGif(g.images?.original?.url)}
+                  src={g.thumb} 
+                  onClick={() => insertGif(g.full)}
                   style={{ width: "100%", borderRadius: "8px", cursor: "pointer", aspectRatio: "16/9", objectFit: "cover" }}
                   alt="gif"
                 />
