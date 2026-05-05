@@ -248,17 +248,25 @@ export default function App() {
 
   const sendMessage = async () => {
     if (!msgDraft.trim() && !mediaFile) return;
+
+    // Capture ALL values upfront before any state changes
     const text = msgDraft.trim();
+    const from = accountEmail;
+    const fromN = accountName;
+    const to = activeConv;
+    const toN = activeConvName;
     const currentMediaFile = mediaFile;
     const currentMediaPreview = mediaPreview;
+
+    if (!from || !to) return;
 
     // Optimistic: show message instantly
     const optimisticMsg = {
       id: Date.now(),
-      fromEmail: accountEmail,
-      fromName: accountName,
-      toEmail: activeConv,
-      toName: activeConvName,
+      fromEmail: from,
+      fromName: fromN,
+      toEmail: to,
+      toName: toN,
       text,
       mediaUrl: currentMediaPreview || "",
       mediaType: currentMediaFile?.type.startsWith("video") ? "video" : currentMediaFile ? "image" : "",
@@ -271,9 +279,10 @@ export default function App() {
     setMsgDraft("");
     setMediaFile(null);
     setMediaPreview("");
+    setMsgError("");
     setThreadMessages(prev => [...prev, optimisticMsg]);
 
-    // Send in background
+    // Send in background using captured values
     try {
       let mediaUrl = "";
       let mediaType = "";
@@ -285,16 +294,15 @@ export default function App() {
         setMediaUploading(false);
       }
       const data = await api.sendMessage({
-        fromEmail: accountEmail,
-        fromName: accountName,
-        toEmail: activeConv,
-        toName: activeConvName,
+        fromEmail: from,
+        fromName: fromN,
+        toEmail: to,
+        toName: toN,
         text,
         mediaUrl,
         mediaType
       });
       if (data.ok) {
-        // Replace optimistic message with real one
         setThreadMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...data.message, _optimistic: false } : m));
       }
     } catch (err) {
