@@ -405,10 +405,6 @@ button, input, textarea, select {
   background: linear-gradient(135deg, var(--accent), hsl(14, 100%, 42%));
   color: #fff; border-bottom-right-radius: 6px;
 }
-.msg-row-sent:hover .msg-actions { opacity: 1 !important; }
-@media (max-width: 600px) {
-  .msg-actions { opacity: 0.8 !important; left: -40px !important; }
-}
 .message-received {
   background: var(--bg-elevated); color: var(--text-main);
   border-bottom-left-radius: 6px;

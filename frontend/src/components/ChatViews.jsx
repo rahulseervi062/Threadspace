@@ -238,13 +238,6 @@ export function ThreadView({
                     className={`message-bubble ${isMine ? "message-sent" : "message-received"}`}
                     style={{ maxWidth: "75%", position: "relative" }}
                   >
-                    {isMine && !msg._optimistic && editingMsgId !== msg.id && (
-                      <div className="msg-actions" style={{ position: "absolute", top: -8, left: -24, display: "flex", gap: 4, opacity: 0, transition: "opacity 0.2s" }}>
-                        <button className="action-button" title="Edit" onClick={() => { setEditingMsgId(msg.id); setEditDraft(msg.text); }} style={{ padding: 4, width: 24, height: 24 }}><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
-                        <button className="action-button" title="Delete" onClick={() => handleDeleteMessage(msg.id)} style={{ padding: 4, width: 24, height: 24, color: "var(--danger)" }}><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
-                      </div>
-                    )}
-
                     {editingMsgId === msg.id ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 200 }}>
                         <textarea
@@ -271,12 +264,18 @@ export function ThreadView({
                     )}
 
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 4 }}>
+                      {isMine && !msg._optimistic && editingMsgId !== msg.id && (
+                        <div style={{ display: "flex", gap: 4, marginRight: "auto" }}>
+                          <button title="Edit" onClick={() => { setEditingMsgId(msg.id); setEditDraft(msg.text); }} style={{ background: "none", border: "none", padding: 2, color: "rgba(255,255,255,0.8)", cursor: "pointer" }}><svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+                          <button title="Delete" onClick={() => handleDeleteMessage(msg.id)} style={{ background: "none", border: "none", padding: 2, color: "rgba(255,255,255,0.8)", cursor: "pointer" }}><svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+                        </div>
+                      )}
                       {msg.isEdited && <span style={{ fontSize: "10px", opacity: 0.6, fontStyle: "italic", marginRight: 4 }}>(edited)</span>}
                       <span style={{ fontSize: "10px", opacity: 0.6 }}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                       {isMine && (
-                        <span style={{ fontSize: "11px", opacity: 0.7, color: msg.read ? "var(--accent)" : "var(--text-muted)" }} title={msg.read ? "Read" : "Delivered"}>
+                        <span style={{ fontSize: "11px", opacity: 0.7, color: msg.read ? "var(--accent)" : "rgba(255,255,255,0.6)" }} title={msg.read ? "Read" : "Delivered"}>
                           {msg.read ? "✓✓" : "✓"}
                         </span>
                       )}
