@@ -407,11 +407,10 @@ export function ThreadView({
 
           <div
             ref={richInputRef}
-            contentEditable="true"
-            inputMode="text"
-            role="textbox"
-            aria-multiline="true"
-            spellCheck="false"
+            contenteditable="true"
+            inputmode="text"
+            enterkeyhint="send"
+            spellcheck="false"
             className="rich-input"
             style={{ 
               flex: 1, background: "transparent", border: "none", color: "var(--text-main)", 
