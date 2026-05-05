@@ -328,8 +328,16 @@ button, input, textarea, select {
 .post-caption { font-size: 1.1rem; margin-bottom: 16px; font-weight: 500; }
 .post-image { width: 100%; border-radius: 12px; margin-bottom: 16px; object-fit: cover; max-height: 600px; }
 
-.post-actions { display: flex; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
-.action-button { background: none; border: 0; color: var(--text-muted); font-weight: 600; padding: 8px 12px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.post-actions { 
+  display: flex; 
+  gap: 12px; 
+  padding-top: 16px; 
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none; /* Hide scrollbar for clean look */
+}
+.post-actions::-webkit-scrollbar { display: none; }
+.action-button { background: none; border: 0; color: var(--text-muted); font-weight: 600; padding: 8px 12px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .action-button:hover { background: var(--bg-elevated); color: var(--text-main); }
 
 /* ── MOBILE BOTTOM NAV ── */
@@ -375,6 +383,47 @@ button, input, textarea, select {
 @media (max-width: 600px) { .content-card { padding: 16px; border-radius: 0; border: 0; } }
 
 .section-head { display: flex; justify-content: space-between; align-items: flex-start; }
+
+/* ── VOTE CLUSTER ── */
+.vote-cluster {
+  display: flex;
+  align-items: center;
+  background: var(--bg-dark);
+  border-radius: 12px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.vote-btn {
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+  font-weight: 700;
+}
+
+.vote-btn:hover { background: var(--bg-elevated); color: var(--text-main); }
+.vote-btn.upvoted { color: var(--accent); background: var(--accent-soft); }
+.vote-btn.downvoted { color: var(--downvote); background: hsla(210, 100%, 65%, 0.1); }
+
+/* ── SKELETONS ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-card) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 
 /* ── SCROLLBAR ── */
 ::-webkit-scrollbar { width: 8px; }
