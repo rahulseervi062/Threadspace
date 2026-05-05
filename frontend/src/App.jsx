@@ -251,13 +251,21 @@ export default function App() {
     if (!msgDraft.trim() && !mediaFile) return;
 
     // Capture ALL values upfront before any state changes
-    const text = msgDraft.trim();
+    let text = msgDraft.trim();
     const from = accountEmail;
     const fromN = accountName;
     const to = activeConv;
     const toN = activeConvName;
-    const currentMediaFile = mediaFile;
-    const currentMediaPreview = mediaPreview;
+    let currentMediaFile = mediaFile;
+    let currentMediaPreview = mediaPreview;
+    let currentMediaType = currentMediaFile?.type.startsWith("video") ? "video" : currentMediaFile ? "image" : "";
+
+    // Auto-detect GIF links
+    if (!currentMediaFile && text.match(/\.(gif|jpe?g|png|webp)$/i) && (text.startsWith("http") || text.startsWith("data:image"))) {
+      currentMediaPreview = text;
+      currentMediaType = "image";
+      text = "";
+    }
 
     if (!from || !to) return;
 
@@ -270,7 +278,7 @@ export default function App() {
       toName: toN,
       text,
       mediaUrl: currentMediaPreview || "",
-      mediaType: currentMediaFile?.type.startsWith("video") ? "video" : currentMediaFile ? "image" : "",
+      mediaType: currentMediaType,
       createdAt: new Date().toISOString(),
       read: false,
       _optimistic: true
@@ -285,27 +293,31 @@ export default function App() {
 
     // Send in background using captured values
     try {
-      let mediaUrl = "";
-      let mediaType = "";
+      let finalMediaUrl = "";
+      let finalMediaType = currentMediaType;
+
       if (currentMediaFile) {
         setMediaUploading(true);
         setUploadProgress(0);
         const uploadData = await api.uploadMediaWithProgress(currentMediaFile, (pct) => {
           setUploadProgress(pct);
         });
-        mediaUrl = uploadData.mediaUrl;
-        mediaType = currentMediaFile.type.startsWith("video") ? "video" : "image";
+        finalMediaUrl = uploadData.mediaUrl;
         setMediaUploading(false);
         setUploadProgress(0);
+      } else if (currentMediaPreview) {
+        // Was a detected link/data URI
+        finalMediaUrl = currentMediaPreview;
       }
+
       const data = await api.sendMessage({
         fromEmail: from,
         fromName: fromN,
         toEmail: to,
         toName: toN,
         text,
-        mediaUrl,
-        mediaType
+        mediaUrl: finalMediaUrl,
+        mediaType: finalMediaType
       });
       if (data.ok) {
         setThreadMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...data.message, _optimistic: false } : m));
