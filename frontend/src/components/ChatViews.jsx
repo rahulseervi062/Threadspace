@@ -365,6 +365,15 @@ export function ThreadView({
             value={msgDraft}
             onChange={handleTextChange}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); setShowEmoji(false); } }}
+            onPaste={(e) => {
+              if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+                const file = e.clipboardData.files[0];
+                if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+                  e.preventDefault();
+                  handleMediaSelect({ target: { files: [file] } });
+                }
+              }
+            }}
             rows={1}
           />
 
