@@ -1,5 +1,5 @@
 export function parseMarkdown(text) {
-  if (!text) return "";
+  if (typeof text !== "string") return "";
   
   // Escape HTML
   let html = text

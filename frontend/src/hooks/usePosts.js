@@ -21,7 +21,7 @@ export function usePosts(accountEmail) {
     try {
       const data = await api.getPosts(targetPage);
       if (data.ok) {
-        setPosts(prev => isInitial ? data.posts : [...prev, ...data.posts]);
+        setPosts(prev => isInitial ? (data.posts || []) : [...prev, ...(data.posts || [])]);
         setHasMore(data.hasMore);
         setPage(targetPage);
       }

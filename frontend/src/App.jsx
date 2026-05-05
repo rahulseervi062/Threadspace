@@ -39,12 +39,13 @@ export default function App() {
     posts, setPosts, postsLoading, postStatus, setPostStatus,
     subreddits, setSubreddits, followingSubreddits, setFollowingSubreddits,
     loadPosts, loadSubreddits, handleReaction, handleSave, handleDelete,
-    handleToggleSubredditFollow
+    handleToggleSubredditFollow, hasMore, loadMorePosts,
+    trendingPosts, recommendedPosts, loadTrendingPosts, loadRecommendedPosts
   } = usePosts(accountEmail);
 
   const {
     conversations, activeConv, activeConvName, threadMessages, loadConversations,
-    openConversation, setThreadMessages
+    openConversation, setThreadMessages, typingUsers, sendTyping, sendStopTyping
   } = useMessages(accountEmail, accountName);
 
   const {
