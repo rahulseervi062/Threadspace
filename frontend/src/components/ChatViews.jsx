@@ -365,11 +365,29 @@ export function ThreadView({
             onChange={handleTextChange}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); setShowEmoji(false); } }}
             onPaste={(e) => {
-              if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
-                const file = e.clipboardData.files[0];
-                if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
-                  e.preventDefault();
-                  handleMediaSelect({ target: { files: [file] } });
+              if (e.clipboardData) {
+                // Try files array first
+                if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+                  const file = e.clipboardData.files[0];
+                  if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+                    e.preventDefault();
+                    handleMediaSelect({ target: { files: [file] } });
+                    return;
+                  }
+                }
+                // Try items array (common for mobile keyboards like Gboard)
+                if (e.clipboardData.items) {
+                  for (let i = 0; i < e.clipboardData.items.length; i++) {
+                    const item = e.clipboardData.items[i];
+                    if (item.type.startsWith("image/") || item.type.startsWith("video/")) {
+                      const file = item.getAsFile();
+                      if (file) {
+                        e.preventDefault();
+                        handleMediaSelect({ target: { files: [file] } });
+                        return;
+                      }
+                    }
+                  }
                 }
               }
             }}
