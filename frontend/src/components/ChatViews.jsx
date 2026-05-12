@@ -1,6 +1,13 @@
 import React from "react";
 import { parseMarkdown } from "../utils/markdown";
 
+const QUICK_GIFS = [
+  "https://media.giphy.com/media/3o7TKsQ8UQ4l4LhGz6/giphy.gif",
+  "https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif",
+  "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif",
+  "https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif"
+];
+
 const QUICK_EMOJIS = ["😀","😂","❤️","🔥","👍","👎","😮","🎉","💯","✨","🙏","😢"];
 
 function formatRelativeTime(dateStr) {
@@ -128,6 +135,8 @@ export function ThreadView({
   setMediaUploading,
   uploadProgress,
   setUploadProgress,
+  replyingTo,
+  setReplyingTo,
   clearMedia,
   fileInputRef,
   handleMediaSelect,
@@ -139,11 +148,13 @@ export function ThreadView({
   sendTyping,
   sendStopTyping,
   handleDeleteMessage,
-  handleEditMessage
+  handleEditMessage,
+  handleMessageReaction
 }) {
   const isTyping = typingUsers.has(activeConv);
   const typingTimeoutRef = React.useRef(null);
   const [showEmoji, setShowEmoji] = React.useState(false);
+  const [showGifs, setShowGifs] = React.useState(false);
   const chatContainerRef = React.useRef(null);
   const [isAtBottom, setIsAtBottom] = React.useState(true);
   const [editingMsgId, setEditingMsgId] = React.useState(null);
@@ -271,6 +282,12 @@ export function ThreadView({
                       </div>
                     ) : (
                       <>
+                        {msg.replyTo ? (
+                          <div style={{ borderLeft: "3px solid rgba(255,255,255,0.45)", paddingLeft: 8, marginBottom: 8, opacity: 0.85, fontSize: "0.8rem" }}>
+                            <strong>{msg.replyTo.fromName || "Message"}</strong>
+                            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{msg.replyTo.text || "Media"}</div>
+                          </div>
+                        ) : null}
                         {msg.mediaUrl && msg.mediaType === "video" ? (
                           <video src={msg.mediaUrl} controls style={{ maxWidth: "100%", borderRadius: "12px", marginBottom: msg.text ? 8 : 0 }} />
                         ) : msg.mediaUrl ? (
@@ -287,6 +304,14 @@ export function ThreadView({
                           <button title="Delete" onClick={() => handleDeleteMessage(msg.id)} style={{ background: "none", border: "none", padding: 2, color: "rgba(255,255,255,0.8)", cursor: "pointer" }}><svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
                         </div>
                       )}
+                      {!msg._optimistic && editingMsgId !== msg.id && (
+                        <button title="Reply" onClick={() => setReplyingTo({ id: msg.id, text: msg.text || "Media", fromName: msg.fromName })} style={{ background: "none", border: "none", padding: 2, color: "rgba(255,255,255,0.8)", cursor: "pointer", marginRight: "auto" }}>Reply</button>
+                      )}
+                      {!msg._optimistic && ["heart", "laugh", "fire"].map((reaction) => (
+                        <button key={reaction} title={reaction} onClick={() => handleMessageReaction?.(msg.id, reaction)} style={{ background: "none", border: "none", padding: 2, color: "rgba(255,255,255,0.8)", cursor: "pointer", fontSize: "10px" }}>
+                          {reaction === "heart" ? "♥" : reaction === "laugh" ? "ha" : "hot"}
+                        </button>
+                      ))}
                       {msg.isEdited && <span style={{ fontSize: "10px", opacity: 0.6, fontStyle: "italic", marginRight: 4 }}>(edited)</span>}
                       <span style={{ fontSize: "10px", opacity: 0.6 }}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -297,6 +322,15 @@ export function ThreadView({
                         </span>
                       )}
                     </div>
+                    {msg.reactions && Object.values(msg.reactions).some((emails) => Array.isArray(emails) && emails.length) ? (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                        {Object.entries(msg.reactions).map(([reaction, emails]) => Array.isArray(emails) && emails.length ? (
+                          <span key={reaction} style={{ fontSize: "0.7rem", background: "rgba(255,255,255,0.16)", borderRadius: 10, padding: "2px 6px" }}>
+                            {reaction === "heart" ? "♥" : reaction === "laugh" ? "ha" : "hot"} {emails.length}
+                          </span>
+                        ) : null)}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </React.Fragment>
@@ -326,6 +360,16 @@ export function ThreadView({
       {/* Input Area */}
       <div style={{ marginTop: "auto", paddingTop: 12, position: "relative" }}>
         {msgError && <div className="feedback error" style={{ marginBottom: 12 }}>{msgError}</div>}
+
+        {replyingTo && (
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 10, padding: "8px 10px", borderLeft: "3px solid var(--accent)", background: "var(--bg-dark)", borderRadius: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <strong style={{ fontSize: "0.8rem" }}>Replying to {replyingTo.fromName}</strong>
+              <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{replyingTo.text}</div>
+            </div>
+            <button type="button" className="action-button" onClick={() => setReplyingTo(null)}>Cancel</button>
+          </div>
+        )}
 
         {mediaPreview && (
           <div style={{ position: "relative", display: "inline-block", marginBottom: 12, animation: "fadeIn 0.3s" }}>
@@ -364,6 +408,21 @@ export function ThreadView({
           </div>
         )}
 
+        {showGifs && (
+          <div style={{
+            position: "absolute", bottom: "100%", left: 52, marginBottom: 8,
+            background: "var(--bg-card)", border: "1px solid var(--border)",
+            borderRadius: "16px", padding: "12px", display: "grid", gridTemplateColumns: "repeat(2, 120px)",
+            gap: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 20
+          }}>
+            {QUICK_GIFS.map((gif) => (
+              <button key={gif} type="button" onClick={() => { handleMediaSelect(null, gif); setShowGifs(false); }} style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}>
+                <img src={gif} alt="GIF" style={{ width: 120, height: 80, objectFit: "cover", borderRadius: 10 }} />
+              </button>
+            ))}
+          </div>
+        )}
+
         <div
           style={{ display: "flex", gap: 8, alignItems: "flex-end", background: "var(--bg-dark)", padding: "8px 8px 8px 4px", borderRadius: "20px", border: "1px solid var(--border)" }}
           onDrop={(e) => {
@@ -380,6 +439,10 @@ export function ThreadView({
 
           <button type="button" onClick={() => setShowEmoji(!showEmoji)} className="action-button" style={{ padding: "10px", borderRadius: "50%", background: showEmoji ? "var(--accent-soft)" : "transparent", flexShrink: 0 }} title="Emoji">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
+          </button>
+
+          <button type="button" onClick={() => setShowGifs(!showGifs)} className="action-button" style={{ padding: "10px", borderRadius: "50%", background: showGifs ? "var(--accent-soft)" : "transparent", flexShrink: 0 }} title="GIF">
+            GIF
           </button>
 
           <button type="button" onClick={() => fileInputRef.current?.click()} className="action-button" style={{ padding: "10px", borderRadius: "50%", flexShrink: 0 }} title="Attach media">

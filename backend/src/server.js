@@ -198,11 +198,13 @@ const userSchema = new mongoose.Schema({
   phone: String,
   password: String,
   avatar: String,
+  banner: String,
   bio: String,
   createdAt: String,
   following: [Number],
   followers: [Number],
   followingSubreddits: [String],
+  blockedUsers: [String],
   karma: { type: Number, default: 0 }
 });
 
@@ -210,6 +212,9 @@ const postSchema = new mongoose.Schema({
   id: Number,
   caption: String,
   imageUrl: String,
+  images: [String],
+  mediaType: String,
+  poll: Object,
   subreddit: String,
   authorName: String,
   authorEmail: String,
@@ -218,6 +223,7 @@ const postSchema = new mongoose.Schema({
   likedBy: [String],
   dislikedBy: [String],
   savedBy: [String],
+  reports: { type: Array, default: [] },
   comments: { type: Array, default: [] },
   createdAt: String,
   updatedAt: String
@@ -241,6 +247,8 @@ const messageSchema = new mongoose.Schema({
   text: String,
   mediaUrl: String,
   mediaType: String,
+  replyTo: Object,
+  reactions: { type: Object, default: {} },
   createdAt: String,
   read: { type: Boolean, default: false },
   isEdited: { type: Boolean, default: false }
@@ -282,6 +290,7 @@ async function readPosts() {
     likedBy: [],
     dislikedBy: [],
     savedBy: [],
+    reports: [],
     ...post
   }));
 }
@@ -838,6 +847,7 @@ app.patch("/api/account", async (req, res) => {
   const phone = normalizePhoneNumber(req.body?.phone);
   const username = String(req.body?.username || "").trim().replace(/\s+/g, "");
   const bio = String(req.body?.bio || "").trim();
+  const banner = String(req.body?.banner || "").trim();
 
   if (!email || !name || !phone) {
     return res.status(400).json({
@@ -869,8 +879,8 @@ app.patch("/api/account", async (req, res) => {
     }
   }
 
-  await User.findOneAndUpdate({ email }, { name, phone, username, bio });
-  users[userIndex] = { ...users[userIndex], name, phone, username, bio };
+  await User.findOneAndUpdate({ email }, { name, phone, username, bio, banner });
+  users[userIndex] = { ...users[userIndex], name, phone, username, bio, banner };
 
   emitSiteUpdate({
     entity: "user",
@@ -887,7 +897,8 @@ app.patch("/api/account", async (req, res) => {
       email: users[userIndex].email,
       phone: users[userIndex].phone,
       bio: users[userIndex].bio || "",
-      avatar: users[userIndex].avatar || ""
+      avatar: users[userIndex].avatar || "",
+      banner: users[userIndex].banner || ""
     }
   });
 });
@@ -1330,12 +1341,24 @@ app.get("/api/posts/recommended", async (req, res) => {
 });
 
 app.post("/api/posts", async (req, res) => {
-  const { caption, imageUrl, subreddit, authorName, authorEmail } = req.body ?? {};
+  const { caption, imageUrl, images, mediaType, poll, subreddit, authorName, authorEmail } = req.body ?? {};
+  const postImages = Array.isArray(images) ? images.filter(Boolean) : [];
+  const primaryImageUrl = imageUrl || postImages[0] || "";
+  const normalizedPoll = poll?.question
+    ? {
+      question: String(poll.question || "").trim(),
+      options: (Array.isArray(poll.options) ? poll.options : [])
+        .map((option) => String(option || "").trim())
+        .filter(Boolean)
+        .slice(0, 4),
+      votes: {}
+    }
+    : null;
 
-  if (!caption || !imageUrl || !subreddit || !authorName || !authorEmail) {
+  if (!caption || (!primaryImageUrl && !normalizedPoll) || !subreddit || !authorName || !authorEmail) {
     return res.status(400).json({
       ok: false,
-      message: "Caption, image, subreddit and author are required."
+      message: "Caption, media or poll, subreddit and author are required."
     });
   }
 
@@ -1343,7 +1366,10 @@ app.post("/api/posts", async (req, res) => {
   const newPost = {
     id: Date.now(),
     caption,
-    imageUrl,
+    imageUrl: primaryImageUrl,
+    images: postImages.length ? postImages : primaryImageUrl ? [primaryImageUrl] : [],
+    mediaType: mediaType || (primaryImageUrl?.startsWith("data:video") ? "video" : "image"),
+    poll: normalizedPoll,
     subreddit,
     authorName,
     authorEmail,
@@ -1353,6 +1379,7 @@ app.post("/api/posts", async (req, res) => {
     likedBy: [],
     dislikedBy: [],
     savedBy: [],
+    reports: [],
     createdAt: new Date().toISOString()
   };
 
@@ -1371,7 +1398,7 @@ app.post("/api/posts", async (req, res) => {
 
 app.patch("/api/posts/:id", async (req, res) => {
   const postId = Number(req.params.id);
-  const { caption, subreddit, imageUrl, userEmail } = req.body ?? {};
+  const { caption, subreddit, imageUrl, images, mediaType, poll, userEmail } = req.body ?? {};
 
   const posts = await readPosts();
   const postIndex = posts.findIndex((item) => item.id === postId);
@@ -1395,6 +1422,9 @@ app.patch("/api/posts/:id", async (req, res) => {
     caption: String(caption || posts[postIndex].caption).trim(),
     subreddit: String(subreddit || posts[postIndex].subreddit).trim(),
     imageUrl: imageUrl || posts[postIndex].imageUrl,
+    images: Array.isArray(images) && images.length ? images : posts[postIndex].images,
+    mediaType: mediaType || posts[postIndex].mediaType,
+    poll: poll || posts[postIndex].poll,
     updatedAt: new Date().toISOString()
   };
 
@@ -1414,7 +1444,8 @@ app.patch("/api/posts/:id", async (req, res) => {
 
 app.post("/api/posts/:id/react", async (req, res) => {
   const postId = Number(req.params.id);
-  const { reaction, userEmail } = req.body ?? {};
+  const reaction = req.body?.reaction || req.body?.type;
+  const { userEmail } = req.body ?? {};
 
   if (!["like", "dislike"].includes(reaction) || !userEmail) {
     return res.status(400).json({
@@ -1734,6 +1765,68 @@ app.post("/api/posts/:id/save", async (req, res) => {
   });
 });
 
+app.post("/api/posts/:id/report", async (req, res) => {
+  const postId = Number(req.params.id);
+  const userEmail = normalizeEmail(req.body?.userEmail);
+  const reason = String(req.body?.reason || "Reported from post menu").trim();
+
+  if (!userEmail) {
+    return res.status(400).json({ ok: false, message: "User email is required." });
+  }
+
+  const posts = await readPosts();
+  const postIndex = posts.findIndex((item) => item.id === postId);
+
+  if (postIndex === -1) {
+    return res.status(404).json({ ok: false, message: "Post not found." });
+  }
+
+  const post = posts[postIndex];
+  post.reports = post.reports || [];
+  const alreadyReported = post.reports.some((report) => normalizeEmail(report.userEmail) === userEmail);
+
+  if (!alreadyReported) {
+    post.reports.push({
+      id: Date.now(),
+      userEmail,
+      reason,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  await Post.deleteMany({});
+  await Post.insertMany(posts);
+
+  return res.json({ ok: true, post });
+});
+
+app.post("/api/posts/:id/poll-vote", async (req, res) => {
+  const postId = Number(req.params.id);
+  const userEmail = normalizeEmail(req.body?.userEmail);
+  const option = String(req.body?.option || "").trim();
+
+  if (!userEmail || !option) {
+    return res.status(400).json({ ok: false, message: "User email and option are required." });
+  }
+
+  const posts = await readPosts();
+  const postIndex = posts.findIndex((item) => item.id === postId);
+
+  if (postIndex === -1 || !posts[postIndex].poll) {
+    return res.status(404).json({ ok: false, message: "Poll not found." });
+  }
+
+  posts[postIndex].poll.votes = {
+    ...(posts[postIndex].poll.votes || {}),
+    [userEmail]: option
+  };
+
+  await Post.deleteMany({});
+  await Post.insertMany(posts);
+
+  return res.json({ ok: true, post: posts[postIndex] });
+});
+
 app.delete("/api/posts/:id", async (req, res) => {
   const postId = Number(req.params.id);
   const userEmail = String(req.query.userEmail || "");
@@ -1818,15 +1911,45 @@ app.get("/api/account", async (req, res) => {
       email: user.email,
       phone: user.phone || "",
       avatar: user.avatar || "",
+      banner: user.banner || "",
       bio: user.bio || "",
       karma: user.karma || 0,
       following: user.following || [],
       followers: user.followers || []
       ,
       followingSubreddits: user.followingSubreddits || [],
+      blockedUsers: user.blockedUsers || [],
       online: onlineUsers.has(normalizeEmail(user.email))
     }
   });
+});
+
+app.post("/api/users/:email/block", async (req, res) => {
+  const targetEmail = normalizeEmail(req.params.email);
+  const userEmail = normalizeEmail(req.body?.userEmail);
+
+  if (!targetEmail || !userEmail) {
+    return res.status(400).json({ ok: false, message: "User email and target email are required." });
+  }
+
+  if (targetEmail === userEmail) {
+    return res.status(400).json({ ok: false, message: "You cannot block yourself." });
+  }
+
+  const user = await User.findOne({ email: userEmail });
+  const target = await User.findOne({ email: targetEmail }).lean();
+
+  if (!user || !target) {
+    return res.status(404).json({ ok: false, message: "User not found." });
+  }
+
+  const blockedUsers = user.blockedUsers || [];
+  user.blockedUsers = blockedUsers.includes(target.email)
+    ? blockedUsers.filter((email) => email !== target.email)
+    : [...blockedUsers, target.email];
+  await user.save();
+
+  return res.json({ ok: true, blockedUsers: user.blockedUsers });
 });
 
 
@@ -1914,6 +2037,13 @@ app.post("/api/messages", async (req, res) => {
   const text = String(req.body?.text || "");
   const mediaUrl = req.body?.mediaUrl;
   const mediaType = req.body?.mediaType;
+  const replyTo = req.body?.replyTo && typeof req.body.replyTo === "object"
+    ? {
+      id: req.body.replyTo.id,
+      text: String(req.body.replyTo.text || "").slice(0, 140),
+      fromName: String(req.body.replyTo.fromName || "")
+    }
+    : null;
 
   if (!fromEmail || !toEmail || (!text.trim() && !mediaUrl)) {
     return res.status(400).json({ ok: false, message: "fromEmail, toEmail and text or media are required." });
@@ -1940,6 +2070,8 @@ app.post("/api/messages", async (req, res) => {
     text: text.trim(),
     mediaUrl,
     mediaType,
+    replyTo,
+    reactions: {},
     createdAt: new Date().toISOString(),
     read: false
   };
@@ -1956,6 +2088,46 @@ app.post("/api/messages", async (req, res) => {
   });
 
   return res.status(201).json({ ok: true, message: newMsg });
+});
+
+app.post("/api/messages/:messageId/react", async (req, res) => {
+  const messageId = Number(req.params.messageId);
+  const userEmail = normalizeEmail(req.body?.userEmail);
+  const reaction = String(req.body?.reaction || "").trim();
+
+  if (!messageId || !userEmail || !reaction) {
+    return res.status(400).json({ ok: false, message: "Message, user email and reaction are required." });
+  }
+
+  const message = await Message.findOne({ id: messageId });
+
+  if (!message) {
+    return res.status(404).json({ ok: false, message: "Message not found." });
+  }
+
+  const reactions = message.reactions || {};
+  const currentUsers = Array.isArray(reactions[reaction]) ? reactions[reaction] : [];
+  const userHasReacted = currentUsers.includes(userEmail);
+
+  const nextReactions = Object.fromEntries(
+    Object.entries(reactions).map(([key, emails]) => [
+      key,
+      (Array.isArray(emails) ? emails : []).filter((email) => normalizeEmail(email) !== userEmail)
+    ])
+  );
+
+  if (!userHasReacted) {
+    nextReactions[reaction] = [...(nextReactions[reaction] || []), userEmail];
+  }
+
+  message.reactions = nextReactions;
+  await message.save();
+
+  const updatedMessage = message.toObject();
+  io.to(normalizeEmail(updatedMessage.fromEmail)).emit("messageReacted", updatedMessage);
+  io.to(normalizeEmail(updatedMessage.toEmail)).emit("messageReacted", updatedMessage);
+
+  return res.json({ ok: true, message: updatedMessage });
 });
 
 /* Catch-all for unknown routes */

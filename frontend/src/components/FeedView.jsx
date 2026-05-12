@@ -31,6 +31,8 @@ export function FeedView({
   handleSave,
   handleShare,
   handleDelete,
+  handleReportPost,
+  handlePollVote,
   commentErrors,
   commentDrafts,
   replyDrafts,
@@ -61,6 +63,66 @@ export function FeedView({
     });
     if (node) observer.current.observe(node);
   }, [postsLoading, hasMore, loadMorePosts]);
+
+  const renderPostMedia = (item) => {
+    const images = Array.isArray(item.images) && item.images.length ? item.images : item.imageUrl ? [item.imageUrl] : [];
+    if (!images.length) return null;
+
+    if (item.mediaType === "video") {
+      return <video className="post-image" src={images[0]} controls />;
+    }
+
+    if (images.length === 1) {
+      return <img className="post-image" src={images[0]} alt="Post" />;
+    }
+
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginTop: 12 }}>
+        {images.slice(0, 4).map((src, index) => (
+          <img key={`${item.id}-${index}`} src={src} alt="Post" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 10 }} />
+        ))}
+      </div>
+    );
+  };
+
+  const renderPoll = (item) => {
+    if (!item.poll?.question || !Array.isArray(item.poll.options)) return null;
+    const votes = item.poll.votes || {};
+    const totalVotes = Object.keys(votes).length;
+    const selectedOption = votes[accountEmail];
+
+    return (
+      <div style={{ display: "grid", gap: 8, marginTop: 14, padding: 12, border: "1px solid var(--border)", borderRadius: 10 }}>
+        <strong>{item.poll.question}</strong>
+        {item.poll.options.map((option) => {
+          const count = Object.values(votes).filter((vote) => vote === option).length;
+          const pct = totalVotes ? Math.round((count / totalVotes) * 100) : 0;
+          return (
+            <button
+              key={option}
+              type="button"
+              className={selectedOption === option ? "action-button active" : "action-button"}
+              onClick={() => handlePollVote?.(item.id, option)}
+              style={{ justifyContent: "space-between", position: "relative", overflow: "hidden" }}
+            >
+              <span>{option}</span>
+              <span>{pct}%</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderTags = (caption) => {
+    const tags = String(caption || "").match(/#[a-z0-9_]+/gi) || [];
+    if (!tags.length) return null;
+    return (
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+        {[...new Set(tags)].map((tag) => <span key={tag} className="subreddit-pill" style={{ width: "auto", padding: "4px 10px", fontSize: "0.75rem" }}>{tag}</span>)}
+      </div>
+    );
+  };
 
   return (
     <div className="content-card">
@@ -117,7 +179,9 @@ export function FeedView({
               ) : (
                 <>
                   <p className="post-caption" dangerouslySetInnerHTML={{ __html: parseMarkdown(item.caption) }} />
-                  {item.imageUrl ? <img className="post-image" src={item.imageUrl} alt="Post" /> : null}
+                  {renderTags(item.caption)}
+                  {renderPostMedia(item)}
+                  {renderPoll(item)}
                 </>
               )}
 
@@ -170,7 +234,11 @@ export function FeedView({
                       <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Z"/></svg>
                     </button>
                   </>
-                ) : null}
+                ) : (
+                  <button className="action-button" type="button" onClick={() => void handleReportPost?.(item.id)}>
+                    Report
+                  </button>
+                )}
               </div>
 
               {openComments[item.id] ? (

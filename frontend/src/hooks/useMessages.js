@@ -82,12 +82,19 @@ export function useMessages(accountEmail, accountName) {
       loadConversations();
     });
 
+    socket.on("messageReacted", (updatedMessage) => {
+      if (activeConv === updatedMessage.fromEmail || activeConv === updatedMessage.toEmail) {
+        setThreadMessages(prev => prev.map(m => m.id === updatedMessage.id ? updatedMessage : m));
+      }
+    });
+
     return () => {
       socket.off("newMessage");
       socket.off("typing");
       socket.off("stopTyping");
       socket.off("messageDeleted");
       socket.off("messageEdited");
+      socket.off("messageReacted");
       socket.disconnect();
     };
   }, [accountEmail, activeConv]);

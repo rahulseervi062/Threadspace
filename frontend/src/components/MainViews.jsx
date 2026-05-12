@@ -8,9 +8,15 @@ export function ProfileView({
   isOwnProfile,
   isFollowing,
   handleToggleUserFollow,
-  isOnline
+  isOnline,
+  userPosts = [],
+  savedPosts = [],
+  blockedUsers = [],
+  handleBlockUser
 }) {
+  const [tab, setTab] = React.useState("posts");
   if (!profileUser) return <div className="content-card">Loading profile...</div>;
+  const isBlocked = blockedUsers.includes(profileUser.email);
 
   return (
     <div className="content-card">
@@ -22,6 +28,9 @@ export function ProfileView({
       </div>
       
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "20px 0" }}>
+        <div style={{ width: "100%", height: 180, borderRadius: 16, overflow: "hidden", background: "linear-gradient(135deg, var(--accent-soft), var(--bg-dark))", marginBottom: -48 }}>
+          {profileUser.banner ? <img src={profileUser.banner} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : null}
+        </div>
         <div style={{ position: "relative", marginBottom: 20 }}>
           {profileUser.avatar ? (
             <img src={profileUser.avatar} alt={profileUser.name} style={{ width: 120, height: 120, borderRadius: "30px", objectFit: "cover", border: "4px solid var(--bg-dark)", boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }} />
@@ -63,10 +72,50 @@ export function ProfileView({
                 <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
                 Message
               </button>
+              <button className="action-button" type="button" onClick={() => void handleBlockUser?.(profileUser.email)} style={{ padding: "12px 18px" }}>
+                {isBlocked ? "Unblock" : "Block"}
+              </button>
             </>
           )}
         </div>
       </div>
+
+      <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border)", marginTop: 8 }}>
+        {["posts", "saved", "about"].map((item) => (
+          <button key={item} className={tab === item ? "nav-link active" : "nav-link"} type="button" onClick={() => setTab(item)}>
+            {item === "posts" ? "Posts" : item === "saved" ? "Saved" : "About"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "posts" && (
+        <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
+          {userPosts.length ? userPosts.map((post) => (
+            <article className="feed-card" key={post.id} style={{ padding: 16 }}>
+              <div className="community-name">r/{post.subreddit}</div>
+              <p className="post-caption" style={{ marginBottom: 0 }}>{post.caption}</p>
+            </article>
+          )) : <div className="empty-preview">No posts yet.</div>}
+        </div>
+      )}
+
+      {tab === "saved" && isOwnProfile && (
+        <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
+          {savedPosts.length ? savedPosts.map((post) => (
+            <article className="feed-card" key={post.id} style={{ padding: 16 }}>
+              <div className="community-name">r/{post.subreddit}</div>
+              <p className="post-caption" style={{ marginBottom: 0 }}>{post.caption}</p>
+            </article>
+          )) : <div className="empty-preview">No saved posts yet.</div>}
+        </div>
+      )}
+
+      {tab === "about" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginTop: 20 }}>
+          <div className="feed-card" style={{ padding: 16 }}><strong>{profileUser.karma || 0}</strong><br /><span style={{ color: "var(--text-muted)" }}>Karma</span></div>
+          <div className="feed-card" style={{ padding: 16 }}><strong>{(profileUser.followingSubreddits || []).length}</strong><br /><span style={{ color: "var(--text-muted)" }}>Communities</span></div>
+        </div>
+      )}
     </div>
   );
 }

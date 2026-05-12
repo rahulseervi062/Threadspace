@@ -76,6 +76,16 @@ export const api = {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userEmail: email })
   }).then(handleResponse),
+  reportPost: (postId, email, reason) => fetch(`${API_BASE}/api/posts/${postId}/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userEmail: email, reason })
+  }).then(handleResponse),
+  votePoll: (postId, email, option) => fetch(`${API_BASE}/api/posts/${postId}/poll-vote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userEmail: email, option })
+  }).then(handleResponse),
 
   // Comments
   addComment: (postId, commentData) => fetch(`${API_BASE}/api/posts/${postId}/comments`, {
@@ -121,6 +131,11 @@ export const api = {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ followerEmail })
   }).then(handleResponse),
+  toggleBlockUser: (targetEmail, userEmail) => fetch(`${API_BASE}/api/users/${encodeURIComponent(targetEmail)}/block`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userEmail })
+  }).then(handleResponse),
 
   // Messages
   getConversations: (email) => fetch(`${API_BASE}/api/messages?userEmail=${encodeURIComponent(email)}`).then(handleResponse),
@@ -137,6 +152,11 @@ export const api = {
   }).then(handleResponse),
   deleteMessage: (messageId, userEmail) => fetch(`${API_BASE}/api/messages/${messageId}?userEmail=${encodeURIComponent(userEmail)}`, {
     method: "DELETE"
+  }).then(handleResponse),
+  reactToMessage: (messageId, userEmail, reaction) => fetch(`${API_BASE}/api/messages/${messageId}/react`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userEmail, reaction })
   }).then(handleResponse),
 
   // Notifications & Presence

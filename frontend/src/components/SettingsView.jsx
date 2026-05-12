@@ -8,6 +8,7 @@ export function SettingsView({
   setProfileForm,
   handleProfileSave,
   handleAvatarUpload,
+  handleBannerUpload,
   profileStatus,
   accountProfile
 }) {
@@ -51,6 +52,13 @@ export function SettingsView({
           </div>
 
           <form className="settings-grid" onSubmit={handleProfileSave}>
+            <label style={{ gridColumn: "1 / -1" }}>
+              <span>Profile Banner</span>
+              {profileForm.banner ? (
+                <img src={profileForm.banner} alt="Profile banner" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 12, marginBottom: 10 }} />
+              ) : null}
+              <input type="file" accept="image/*" onChange={handleBannerUpload} />
+            </label>
             <label>
               <span>Full Name</span>
               <input value={profileForm.name} onChange={(e) => setProfileForm((current) => ({ ...current, name: e.target.value }))} />

@@ -59,14 +59,15 @@ export default function App() {
   const [replyDrafts, setReplyDrafts] = useState({});
   const [commentErrors, setCommentErrors] = useState({});
   const [editingPostId, setEditingPostId] = useState(null);
-  const [editPost, setEditPost] = useState({ caption: "", subreddit: "", imageUrl: "" });
-  const [post, setPost] = useState({ caption: "", imageUrl: "", subreddit: "" });
+  const emptyPost = { caption: "", imageUrl: "", images: [], mediaType: "image", subreddit: "", pollQuestion: "", pollOptions: ["", ""] };
+  const [editPost, setEditPost] = useState({ caption: "", subreddit: "", imageUrl: "", images: [], mediaType: "image" });
+  const [post, setPost] = useState(emptyPost);
 
   // --- Local States for Account & Notifications ---
   const [accountProfile, setAccountProfile] = useState({});
   const [profileUser, setProfileUser] = useState(null);
   const [profileStatus, setProfileStatus] = useState({ loading: false, type: "", message: "" });
-  const [profileForm, setProfileForm] = useState({ name: "", username: "", phone: "", bio: "" });
+  const [profileForm, setProfileForm] = useState({ name: "", username: "", phone: "", bio: "", banner: "" });
   const [notifications, setNotifications] = useState([]);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -83,6 +84,7 @@ export default function App() {
   const [mediaUploading, setMediaUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [msgError, setMsgError] = useState("");
+  const [replyingTo, setReplyingTo] = useState(null);
 
   // --- Reset Password State ---
   const [resetForm, setResetForm] = useState({ password: "", confirm: "" });
@@ -125,7 +127,7 @@ export default function App() {
       const data = await api.getAccount(accountEmail);
       if (data.ok) {
         setAccountProfile(data.user);
-        setProfileForm({ name: data.user.name, username: data.user.username || "", phone: data.user.phone || "", bio: data.user.bio || "" });
+        setProfileForm({ name: data.user.name, username: data.user.username || "", phone: data.user.phone || "", bio: data.user.bio || "", banner: data.user.banner || "" });
         setFollowingSubreddits(data.user.followingSubreddits || []);
       }
     } catch (err) {}
@@ -160,10 +162,19 @@ export default function App() {
     e.preventDefault();
     setPostStatus({ loading: true, type: "", message: "" });
     try {
-      const data = await api.createPost({ ...post, authorName: accountName, authorEmail: accountEmail });
+      const pollOptions = post.pollOptions.map((option) => option.trim()).filter(Boolean);
+      const payload = {
+        ...post,
+        poll: post.pollQuestion.trim() && pollOptions.length >= 2
+          ? { question: post.pollQuestion.trim(), options: pollOptions }
+          : null,
+        authorName: accountName,
+        authorEmail: accountEmail
+      };
+      const data = await api.createPost(payload);
       if (data.ok) {
         setPosts(prev => [data.post, ...prev]);
-        setPost({ caption: "", imageUrl: "", subreddit: post.subreddit });
+        setPost({ ...emptyPost, subreddit: post.subreddit });
         setPostStatus({ loading: false, type: "success", message: "Post shared!" });
         setView("feed");
       }
@@ -174,12 +185,25 @@ export default function App() {
 
   const handlePostChange = (e) => setPost(prev => ({ ...prev, [e.target.name]: e.target.value }));
   
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => setPost(prev => ({ ...prev, imageUrl: reader.result }));
-    reader.readAsDataURL(file);
+  const readFileAsDataUrl = (file) =>
+    new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+
+  const handleImageChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const urls = await Promise.all(files.slice(0, 4).map(readFileAsDataUrl));
+    const firstFile = files[0];
+    setPost(prev => ({
+      ...prev,
+      imageUrl: urls[0],
+      images: urls,
+      mediaType: firstFile.type.startsWith("video") ? "video" : "image"
+    }));
   };
 
   const handleCommentSubmit = async (postId) => {
@@ -205,6 +229,29 @@ export default function App() {
         setReplyDrafts(prev => ({ ...prev, [key]: "" }));
       }
     } catch (err) {}
+  };
+
+  const handleReportPost = async (postId) => {
+    try {
+      const data = await api.reportPost(postId, accountEmail, "Reported by user");
+      if (data.ok) {
+        setPosts(prev => prev.map(p => p.id === postId ? data.post : p));
+        toast.success("Post reported");
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to report post");
+    }
+  };
+
+  const handlePollVote = async (postId, option) => {
+    try {
+      const data = await api.votePoll(postId, accountEmail, option);
+      if (data.ok) {
+        setPosts(prev => prev.map(p => p.id === postId ? data.post : p));
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to vote");
+    }
   };
 
   // --- Profile & Settings Handlers ---
@@ -235,6 +282,26 @@ export default function App() {
       } catch (err) {}
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleBannerUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setProfileForm((current) => ({ ...current, banner: reader.result }));
+    reader.readAsDataURL(file);
+  };
+
+  const handleBlockUser = async (targetEmail) => {
+    try {
+      const data = await api.toggleBlockUser(targetEmail, accountEmail);
+      if (data.ok) {
+        setAccountProfile((current) => ({ ...current, blockedUsers: data.blockedUsers || [] }));
+        toast.success((data.blockedUsers || []).includes(targetEmail) ? "User blocked" : "User unblocked");
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to update block");
+    }
   };
 
   // --- Chat Handlers ---
@@ -327,6 +394,7 @@ export default function App() {
       text,
       mediaUrl: currentMediaPreview || "",
       mediaType: currentMediaType,
+      replyTo: replyingTo,
       createdAt: new Date().toISOString(),
       read: false,
       _optimistic: true
@@ -336,6 +404,7 @@ export default function App() {
     setMsgDraft("");
     setMediaFile(null);
     setMediaPreview("");
+    setReplyingTo(null);
     setMsgError("");
     setThreadMessages(prev => [...prev, optimisticMsg]);
 
@@ -366,7 +435,8 @@ export default function App() {
         toName: toN,
         text,
         mediaUrl: finalMediaUrl,
-        mediaType: finalMediaType
+        mediaType: finalMediaType,
+        replyTo: optimisticMsg.replyTo
       });
       if (data.ok) {
         setThreadMessages(prev => prev.map(m => m.id === optimisticMsg.id ? { ...data.message, _optimistic: false } : m));
@@ -398,6 +468,17 @@ export default function App() {
       await api.editMessage(messageId, accountEmail, newText);
     } catch (err) {
       setMsgError(err.message || "Failed to edit message");
+    }
+  };
+
+  const handleMessageReaction = async (messageId, reaction) => {
+    try {
+      const data = await api.reactToMessage(messageId, accountEmail, reaction);
+      if (data.ok) {
+        setThreadMessages(prev => prev.map(m => m.id === messageId ? data.message : m));
+      }
+    } catch (err) {
+      setMsgError(err.message || "Failed to react");
     }
   };
 
@@ -529,11 +610,12 @@ export default function App() {
               accountEmail={accountEmail} openUserProfile={openUserProfile} openCommunity={openCommunity}
               handleReaction={handleReaction} openComments={openComments} toggleComments={(id) => setOpenComments(c => ({...c, [id]: !c[id]}))}
               handleSave={handleSave} handleShare={() => {}} handleDelete={handleDelete}
+              handleReportPost={handleReportPost} handlePollVote={handlePollVote}
               commentErrors={commentErrors} commentDrafts={commentDrafts} replyDrafts={replyDrafts}
               setCommentDrafts={setCommentDrafts} setReplyDrafts={setReplyDrafts}
               handleCommentSubmit={handleCommentSubmit} handleReplySubmit={handleReplySubmit}
               editingPostId={editingPostId} editPost={editPost} setEditPost={setEditPost}
-              startEditPost={(p) => { setEditingPostId(p.id); setEditPost({ caption: p.caption, subreddit: p.subreddit, imageUrl: p.imageUrl }); }}
+              startEditPost={(p) => { setEditingPostId(p.id); setEditPost({ caption: p.caption, subreddit: p.subreddit, imageUrl: p.imageUrl, images: p.images || [], mediaType: p.mediaType || "image" }); }}
               cancelEditPost={() => setEditingPostId(null)} handleEditPostImage={() => {}} handleEditPostSubmit={() => {}}
               title={selectedCommunity ? `r/${selectedCommunity}` : "Home Feed"}
               hasMore={hasMore} loadMorePosts={loadMorePosts}
@@ -546,6 +628,7 @@ export default function App() {
               accountEmail={accountEmail} openUserProfile={openUserProfile} openCommunity={openCommunity}
               handleReaction={handleReaction} openComments={openComments} toggleComments={(id) => setOpenComments(c => ({...c, [id]: !c[id]}))}
               handleSave={handleSave} handleShare={() => {}} handleDelete={handleDelete}
+              handleReportPost={handleReportPost} handlePollVote={handlePollVote}
               commentErrors={commentErrors} commentDrafts={commentDrafts} replyDrafts={replyDrafts}
               setCommentDrafts={setCommentDrafts} setReplyDrafts={setReplyDrafts}
               handleCommentSubmit={handleCommentSubmit} handleReplySubmit={handleReplySubmit}
@@ -560,6 +643,7 @@ export default function App() {
               accountEmail={accountEmail} openUserProfile={openUserProfile} openCommunity={openCommunity}
               handleReaction={handleReaction} openComments={openComments} toggleComments={(id) => setOpenComments(c => ({...c, [id]: !c[id]}))}
               handleSave={handleSave} handleShare={() => {}} handleDelete={handleDelete}
+              handleReportPost={handleReportPost} handlePollVote={handlePollVote}
               commentErrors={commentErrors} commentDrafts={commentDrafts} replyDrafts={replyDrafts}
               setCommentDrafts={setCommentDrafts} setReplyDrafts={setReplyDrafts}
               handleCommentSubmit={handleCommentSubmit} handleReplySubmit={handleReplySubmit}
@@ -574,6 +658,7 @@ export default function App() {
               accountEmail={accountEmail} openUserProfile={openUserProfile} openCommunity={openCommunity}
               handleReaction={handleReaction} openComments={openComments} toggleComments={(id) => setOpenComments(c => ({...c, [id]: !c[id]}))}
               handleSave={handleSave} handleShare={() => {}} handleDelete={handleDelete}
+              handleReportPost={handleReportPost} handlePollVote={handlePollVote}
               commentErrors={commentErrors} commentDrafts={commentDrafts} replyDrafts={replyDrafts}
               setCommentDrafts={setCommentDrafts} setReplyDrafts={setReplyDrafts}
               handleCommentSubmit={handleCommentSubmit} handleReplySubmit={handleReplySubmit}
@@ -583,7 +668,7 @@ export default function App() {
           )}
 
           {view === "create" && (
-            <CreatePostView subreddits={subreddits} post={post} handlePostSubmit={handlePostSubmit} handlePostChange={handlePostChange} handleImageChange={handleImageChange} postStatus={postStatus} />
+            <CreatePostView subreddits={subreddits} post={post} setPost={setPost} handlePostSubmit={handlePostSubmit} handlePostChange={handlePostChange} handleImageChange={handleImageChange} postStatus={postStatus} />
           )}
 
           {view === "subreddits" && (
@@ -609,16 +694,17 @@ export default function App() {
               sendMessage={sendMessage} isOtherOnline={isOtherOnline}
               typingUsers={typingUsers} sendTyping={sendTyping} sendStopTyping={sendStopTyping}
               uploadProgress={uploadProgress}
-              handleDeleteMessage={handleDeleteMessage} handleEditMessage={handleEditMessage}
+              replyingTo={replyingTo} setReplyingTo={setReplyingTo}
+              handleDeleteMessage={handleDeleteMessage} handleEditMessage={handleEditMessage} handleMessageReaction={handleMessageReaction}
             />
           )}
 
           {view === "profile" && (
-            <ProfileView profileUser={profileUser} accountEmail={accountEmail} setView={setView} openConversation={(email, name) => openConversation(email, name, setView)} isOwnProfile={normalizeEmailSafe(profileUser?.email) === normalizeEmailSafe(accountEmail)} isFollowing={false} handleToggleUserFollow={() => {}} isOnline={onlineEmails.includes(normalizeEmailSafe(profileUser?.email))} />
+            <ProfileView profileUser={profileUser} accountEmail={accountEmail} setView={setView} openConversation={(email, name) => openConversation(email, name, setView)} isOwnProfile={normalizeEmailSafe(profileUser?.email) === normalizeEmailSafe(accountEmail)} isFollowing={false} handleToggleUserFollow={() => {}} isOnline={onlineEmails.includes(normalizeEmailSafe(profileUser?.email))} userPosts={posts.filter((p) => normalizeEmailSafe(p.authorEmail) === normalizeEmailSafe(profileUser?.email))} savedPosts={savedPosts} blockedUsers={accountProfile.blockedUsers || []} handleBlockUser={handleBlockUser} />
           )}
 
           {view === "settings" && (
-            <SettingsView accountName={accountName} accountEmail={accountEmail} onSignOut={signOut} profileForm={profileForm} setProfileForm={setProfileForm} handleProfileSave={handleProfileSave} handleAvatarUpload={handleAvatarUpload} profileStatus={profileStatus} accountProfile={accountProfile} />
+            <SettingsView accountName={accountName} accountEmail={accountEmail} onSignOut={signOut} profileForm={profileForm} setProfileForm={setProfileForm} handleProfileSave={handleProfileSave} handleAvatarUpload={handleAvatarUpload} handleBannerUpload={handleBannerUpload} profileStatus={profileStatus} accountProfile={accountProfile} />
           )}
 
           {view === "search" && (
