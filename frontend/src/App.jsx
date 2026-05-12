@@ -254,6 +254,33 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  const getMediaTypeFromFile = (file) => {
+    if (!file?.type) return "";
+    if (file.type === "image/gif") return "gif";
+    if (file.type.startsWith("video")) return "video";
+    if (file.type.startsWith("image")) return "image";
+    return "";
+  };
+
+  const getMediaTypeFromUrl = (url) => {
+    if (!url) return "";
+    if (url.startsWith("data:image/gif")) return "gif";
+    if (url.startsWith("data:image")) return "image";
+    if (url.startsWith("data:video")) return "video";
+
+    try {
+      const { pathname } = new URL(url);
+      const extension = pathname.split(".").pop()?.toLowerCase();
+      if (extension === "gif") return "gif";
+      if (["jpg", "jpeg", "png", "webp"].includes(extension)) return "image";
+      if (["mp4", "webm", "mov"].includes(extension)) return "video";
+    } catch {
+      return "";
+    }
+
+    return "";
+  };
+
   const sendMessage = async () => {
     if (!msgDraft.trim() && !mediaFile && !mediaPreview) return;
 
@@ -265,13 +292,16 @@ export default function App() {
     const toN = activeConvName;
     let currentMediaFile = mediaFile;
     let currentMediaPreview = mediaPreview;
-    let currentMediaType = currentMediaFile?.type.startsWith("video") ? "video" : currentMediaFile ? "image" : "";
+    let currentMediaType = getMediaTypeFromFile(currentMediaFile);
 
     // Auto-detect GIF links
-    if (!currentMediaFile && text.match(/\.(gif|jpe?g|png|webp)$/i) && (text.startsWith("http") || text.startsWith("data:image"))) {
-      currentMediaPreview = text;
-      currentMediaType = "image";
-      text = "";
+    if (!currentMediaFile && (text.startsWith("http") || text.startsWith("data:"))) {
+      const detectedMediaType = getMediaTypeFromUrl(text);
+      if (detectedMediaType) {
+        currentMediaPreview = text;
+        currentMediaType = detectedMediaType;
+        text = "";
+      }
     }
 
     if (!from || !to) return;
@@ -310,6 +340,7 @@ export default function App() {
           setUploadProgress(pct);
         });
         finalMediaUrl = uploadData.mediaUrl;
+        finalMediaType = uploadData.mediaType || finalMediaType;
         setMediaUploading(false);
         setUploadProgress(0);
       } else if (currentMediaPreview) {

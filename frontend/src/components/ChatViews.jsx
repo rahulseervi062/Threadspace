@@ -394,7 +394,7 @@ export function ThreadView({
           <button
             type="button"
             onClick={() => { sendMessage(); setShowEmoji(false); }}
-            disabled={msgLoading || mediaUploading || (!msgDraft.trim() && !mediaFile)}
+            disabled={msgLoading || mediaUploading || (!msgDraft.trim() && !mediaFile && !mediaPreview)}
             className="post-button"
             style={{ borderRadius: "50%", width: 44, height: 44, padding: 0, flexShrink: 0, transition: "all 0.2s" }}
           >
