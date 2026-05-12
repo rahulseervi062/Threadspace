@@ -1,4 +1,5 @@
 const API_BASE = String(import.meta.env.VITE_API_URL || "").trim().replace(/\/$/, "");
+const TENOR_API_KEY = String(import.meta.env.VITE_TENOR_API_KEY || "").trim();
 
 async function handleResponse(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -170,6 +171,41 @@ export const api = {
 
   // Search
   search: (query) => fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`).then(handleResponse),
+  searchGifs: async (query = "trending", limit = 12) => {
+    if (!TENOR_API_KEY) {
+      return { ok: false, gifs: [], message: "Tenor API key is not configured." };
+    }
+
+    const params = new URLSearchParams({
+      q: query || "trending",
+      key: TENOR_API_KEY,
+      limit: String(limit),
+      contentfilter: "medium",
+      media_filter: "minimal",
+      locale: "en_US"
+    });
+
+    const response = await fetch(`https://g.tenor.com/v1/search?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error("Failed to search GIFs");
+    }
+
+    const data = await response.json();
+    const gifs = (data.results || []).map((item) => {
+      const media = item.media?.[0] || item.media_formats || {};
+      const preview = media.tinygif?.url || media.nanogif?.url || media.gif?.url;
+      const url = media.gif?.url || preview;
+
+      return {
+        id: item.id,
+        title: item.title || query,
+        preview,
+        url
+      };
+    }).filter((gif) => gif.preview && gif.url);
+
+    return { ok: true, gifs };
+  },
 
   // Uploads
   uploadMedia: (file) => {

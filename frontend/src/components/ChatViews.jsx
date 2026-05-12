@@ -1,11 +1,12 @@
 import React from "react";
 import { parseMarkdown } from "../utils/markdown";
+import { api } from "../services/api";
 
 const QUICK_GIFS = [
-  "https://media.giphy.com/media/3o7TKsQ8UQ4l4LhGz6/giphy.gif",
-  "https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif",
-  "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif",
-  "https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif"
+  { id: "fallback-1", title: "Excited", preview: "https://media.giphy.com/media/3o7TKsQ8UQ4l4LhGz6/giphy.gif", url: "https://media.giphy.com/media/3o7TKsQ8UQ4l4LhGz6/giphy.gif" },
+  { id: "fallback-2", title: "Waiting", preview: "https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif", url: "https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif" },
+  { id: "fallback-3", title: "Nice", preview: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif", url: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif" },
+  { id: "fallback-4", title: "Hello", preview: "https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif", url: "https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif" }
 ];
 
 const QUICK_EMOJIS = ["😀","😂","❤️","🔥","👍","👎","😮","🎉","💯","✨","🙏","😢"];
@@ -155,6 +156,10 @@ export function ThreadView({
   const typingTimeoutRef = React.useRef(null);
   const [showEmoji, setShowEmoji] = React.useState(false);
   const [showGifs, setShowGifs] = React.useState(false);
+  const [gifQuery, setGifQuery] = React.useState("trending");
+  const [gifResults, setGifResults] = React.useState(QUICK_GIFS);
+  const [gifLoading, setGifLoading] = React.useState(false);
+  const [gifError, setGifError] = React.useState("");
   const chatContainerRef = React.useRef(null);
   const [isAtBottom, setIsAtBottom] = React.useState(true);
   const [editingMsgId, setEditingMsgId] = React.useState(null);
@@ -192,12 +197,34 @@ export function ThreadView({
     }
   };
 
+  React.useEffect(() => {
+    if (!showGifs) return;
+
+    const searchTerm = gifQuery.trim() || "trending";
+    const timer = setTimeout(async () => {
+      setGifLoading(true);
+      setGifError("");
+      try {
+        const data = await api.searchGifs(searchTerm, 12);
+        if (data.ok && data.gifs.length) {
+          setGifResults(data.gifs);
+        } else {
+          setGifResults(QUICK_GIFS);
+          setGifError(data.message || "Showing quick GIFs");
+        }
+      } catch (err) {
+        setGifResults(QUICK_GIFS);
+        setGifError(err.message || "Showing quick GIFs");
+      } finally {
+        setGifLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [gifQuery, showGifs]);
+
   const insertEmoji = (emoji) => {
-    if (richInputRef.current) {
-      richInputRef.current.textContent += emoji;
-      setMsgDraft(richInputRef.current.textContent);
-      richInputRef.current.focus();
-    }
+    setMsgDraft((current) => `${current}${emoji}`);
     setShowEmoji(false);
   };
 
@@ -412,14 +439,30 @@ export function ThreadView({
           <div style={{
             position: "absolute", bottom: "100%", left: 52, marginBottom: 8,
             background: "var(--bg-card)", border: "1px solid var(--border)",
-            borderRadius: "16px", padding: "12px", display: "grid", gridTemplateColumns: "repeat(2, 120px)",
-            gap: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 20
+            borderRadius: "16px", padding: "12px", width: "min(360px, calc(100vw - 32px))",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 20
           }}>
-            {QUICK_GIFS.map((gif) => (
-              <button key={gif} type="button" onClick={() => { handleMediaSelect(null, gif); setShowGifs(false); }} style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}>
-                <img src={gif} alt="GIF" style={{ width: 120, height: 80, objectFit: "cover", borderRadius: 10 }} />
-              </button>
-            ))}
+            <input
+              value={gifQuery}
+              onChange={(event) => setGifQuery(event.target.value)}
+              placeholder="Search GIFs"
+              style={{ marginBottom: 10, height: 38 }}
+            />
+            {gifError ? <div style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginBottom: 8 }}>{gifError}</div> : null}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, maxHeight: 260, overflowY: "auto" }}>
+              {gifLoading ? (
+                <div className="search-empty" style={{ gridColumn: "1 / -1", padding: 18 }}>Searching GIFs...</div>
+              ) : gifResults.length ? gifResults.map((gif) => (
+                <button key={gif.id || gif.url} type="button" onClick={() => { handleMediaSelect(null, gif.url); setShowGifs(false); }} style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}>
+                  <img src={gif.preview} alt={gif.title || "GIF"} style={{ width: "100%", aspectRatio: "1.2", objectFit: "cover", borderRadius: 10 }} />
+                </button>
+              )) : (
+                <div className="search-empty" style={{ gridColumn: "1 / -1", padding: 18 }}>No GIFs found.</div>
+              )}
+            </div>
+            <div style={{ marginTop: 8, color: "var(--text-muted)", fontSize: "0.7rem", textAlign: "right" }}>
+              Powered by Tenor
+            </div>
           </div>
         )}
 
