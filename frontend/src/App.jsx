@@ -254,6 +254,17 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  const handleMessageMediaPaste = (e) => {
+    const mediaFile = Array.from(e.clipboardData?.files || []).find((file) =>
+      file.type.startsWith("image/") || file.type.startsWith("video/")
+    );
+
+    if (!mediaFile) return;
+
+    e.preventDefault();
+    handleMediaSelect({ target: { files: [mediaFile] } });
+  };
+
   const getMediaTypeFromFile = (file) => {
     if (!file?.type) return "";
     if (file.type === "image/gif") return "gif";
@@ -593,7 +604,7 @@ export default function App() {
               threadMessages={threadMessages}
               loadConversations={loadConversations} setView={setView} messagesEndRef={messagesEndRef}
               msgError={msgError} mediaPreview={mediaPreview} mediaFile={mediaFile} clearMedia={() => { setMediaFile(null); setMediaPreview(""); }}
-              fileInputRef={fileInputRef} handleMediaSelect={handleMediaSelect} msgLoading={msgLoading}
+              fileInputRef={fileInputRef} handleMediaSelect={handleMediaSelect} handleMessageMediaPaste={handleMessageMediaPaste} msgLoading={msgLoading}
               mediaUploading={mediaUploading} msgDraft={msgDraft} setMsgDraft={setMsgDraft}
               sendMessage={sendMessage} isOtherOnline={isOtherOnline}
               typingUsers={typingUsers} sendTyping={sendTyping} sendStopTyping={sendStopTyping}
