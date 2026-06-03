@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "build": "node -e \"console.log('Backend build step complete')\""
+    "build": "node -e \"console.log('Backend build step complete')\"",
+    "restore": "node scripts/restore.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
