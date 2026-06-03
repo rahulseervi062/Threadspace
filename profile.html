@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profile – My Awesome Site</title>
+    <meta name="description" content="Profile page showcasing personal info, skills, projects, and contact details with premium UI." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <!-- Sticky Navigation (same as main page) -->
+    <header class="nav">
+        <div class="logo">MySite</div>
+        <nav class="nav-links">
+            <a href="index.html">Home</a>
+            <a href="#about">About</a>
+            <a href="#skills">Skills</a>
+            <a href="#projects">Projects</a>
+            <a href="#contact">Contact</a>
+        </nav>
+        <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+        <button id="mobileMenuBtn" class="mobile-menu-btn" aria-label="Open menu">☰</button>
+    </header>
+
+    <div id="mobileMenu" class="mobile-menu hidden">
+        <button id="closeMobileMenu" class="close-mobile" aria-label="Close menu">✖</button>
+        <nav class="mobile-links">
+            <a href="index.html" class="mobile-link">Home</a>
+            <a href="#about" class="mobile-link">About</a>
+            <a href="#skills" class="mobile-link">Skills</a>
+            <a href="#projects" class="mobile-link">Projects</a>
+            <a href="#contact" class="mobile-link">Contact</a>
+        </nav>
+    </div>
+
+    <section class="profile-header" style="padding: 4rem 1rem; text-align: center;">
+        <div class="glass-card" style="display: inline-block; max-width: 500px;">
+            <img src="https://placehold.co/150x150?text=Avatar" alt="Avatar" style="border-radius: 50%; width: 150px; height: 150px; object-fit: cover;" />
+            <h1 style="margin-top: 1rem;">John Doe</h1>
+            <p class="subtitle">Full‑Stack Developer • UI/UX Enthusiast</p>
+        </div>
+    </section>
+
+    <section id="about" class="section about-section" style="padding: 3rem 1rem; text-align: center;">
+        <div class="glass-card" style="max-width: 800px; margin: 0 auto;">
+            <h2 class="section-title">About Me</h2>
+            <p>Passionate developer with 5+ years of experience building modern web applications. I love crafting beautiful, performant, and accessible user experiences.</p>
+        </div>
+    </section>
+
+    <section id="skills" class="section skills-section" style="padding: 3rem 1rem; text-align: center;">
+        <div class="glass-card" style="max-width: 800px; margin: 0 auto;">
+            <h2 class="section-title">Skills & Technologies</h2>
+            <ul class="features-grid" style="list-style: none; padding: 0;">
+                <li class="feature-card"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor"/></svg><h3>JavaScript</h3></li>
+                <li class="feature-card"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/></svg><h3>React</h3></li>
+                <li class="feature-card"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="2" fill="none"/></svg><h3>Node.js</h3></li>
+            </ul>
+        </div>
+    </section>
+
+    <section id="projects" class="section projects-section" style="padding: 3rem 1rem; text-align: center;">
+        <div class="glass-card" style="max-width: 1000px; margin: 0 auto;">
+            <h2 class="section-title">Projects</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <h3>Project Alpha</h3>
+                    <p>A platform for real‑time collaboration.</p>
+                    <a href="#" class="cta" style="font-size: 0.9rem;">View Demo</a>
+                </div>
+                <div class="feature-card">
+                    <h3>Beta Blog</h3>
+                    <p>Modern static blog built with Astro.</p>
+                    <a href="#" class="cta" style="font-size: 0.9rem;">View Demo</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="contact" class="section contact-section" style="padding: 3rem 1rem; text-align: center;">
+        <div class="glass-card" style="max-width: 800px; margin: 0 auto;">
+            <h2 class="section-title">Contact</h2>
+            <p>Email: <a href="mailto:john.doe@example.com">john.doe@example.com</a></p>
+            <div class="social-links" style="margin-top: 1rem;">
+                <a href="https://twitter.com/" aria-label="Twitter">🐦</a>
+                <a href="https://github.com/" aria-label="GitHub">🐙</a>
+                <a href="https://linkedin.com/" aria-label="LinkedIn">🔗</a>
+            </div>
+        </div>
+    </section>
+
+    <footer class="site-footer">
+        <div class="footer-content">
+            <p>&copy; 2026 John Doe. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

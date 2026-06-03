@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Awesome Site</title>
+    <meta name="description" content="A modern, premium‑styled landing page with cool UI, dark mode, and interactive components." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <!-- Sticky Navigation -->
+    <header class="nav">
+        <div class="logo">MySite</div>
+        <nav class="nav-links">
+            <a href="#hero">Home</a>
+            <a href="#features">Features</a>
+            <a href="#testimonials">Testimonials</a>
+            <a href="#faq">FAQ</a>
+            <a href="profile.html">Profile</a>
+            <a href="#footer">Contact</a>
+        </nav>
+        <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+        <button id="mobileMenuBtn" class="mobile-menu-btn" aria-label="Open menu">☰</button>
+    </header>
+
+    <!-- Mobile Navigation Overlay -->
+    <div id="mobileMenu" class="mobile-menu hidden">
+        <button id="closeMobileMenu" class="close-mobile" aria-label="Close menu">✖</button>
+        <nav class="mobile-links">
+            <a href="#hero" class="mobile-link">Home</a>
+            <a href="#features" class="mobile-link">Features</a>
+            <a href="#testimonials" class="mobile-link">Testimonials</a>
+            <a href="#faq" class="mobile-link">FAQ</a>
+            <a href="profile.html" class="mobile-link">Profile</a>
+            <a href="#footer" class="mobile-link">Contact</a>
+        </nav>
+    </div>
+
+    <!-- Hero Carousel -->
+    <section id="hero" class="hero-carousel">
+        <div class="carousel-slide active">
+            <div class="glass-card">
+                <h1>Welcome to My Awesome Site</h1>
+                <p class="subtitle">Experience a premium UI built with modern CSS techniques.</p>
+                <button class="cta" id="ctaBtn">Get Started</button>
+            </div>
+        </div>
+        <div class="carousel-slide">
+            <div class="glass-card">
+                <h1>Beautiful Design, Seamless Experience</h1>
+                <p class="subtitle">Responsive, accessible, and fast.</p>
+                <button class="cta">Learn More</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section id="features" class="features-section">
+        <h2 class="section-title">Features</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor"/></svg>
+                <h3>Fast Performance</h3>
+                <p>Optimized assets and code for blazing‑fast loading.</p>
+            </div>
+            <div class="feature-card">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                <h3>Responsive Design</h3>
+                <p>Looks great on any device, from phone to desktop.</p>
+            </div>
+            <div class="feature-card">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                <h3>Dark Mode</h3>
+                <p>Switch between light and dark themes instantly.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section id="testimonials" class="testimonials-section">
+        <h2 class="section-title">What People Say</h2>
+        <div class="testimonials-slider">
+            <div class="testimonial-card active">
+                <p class="quote">“A stunning UI that feels premium and modern.”</p>
+                <p class="author">— Alex P.</p>
+            </div>
+            <div class="testimonial-card">
+                <p class="quote">“The dark mode is a game‑changer for night‑time browsing.”</p>
+                <p class="author">— Jamie L.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Accordion -->
+    <section id="faq" class="faq-section">
+        <h2 class="section-title">Frequently Asked Questions</h2>
+        <details class="faq-item">
+            <summary>How do I enable dark mode?</summary>
+            <p>Click the moon icon in the top‑right corner or use the system setting.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Is this site responsive?</summary>
+            <p>Yes! The layout adapts to all screen sizes using flexbox and CSS grid.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Can I customize the colors?</summary>
+            <p>All primary colors are defined as CSS variables in <code>styles.css</code> for easy tweaking.</p>
+        </details>
+    </section>
+
+    <!-- Footer -->
+    <footer id="footer" class="site-footer">
+        <div class="footer-content">
+            <p>&copy; 2026 My Awesome Site. All rights reserved.</p>
+            <div class="social-links">
+                <a href="#" aria-label="Twitter">🐦</a>
+                <a href="#" aria-label="GitHub">🐙</a>
+                <a href="#" aria-label="LinkedIn">🔗</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Awesome Site</title>
+    <meta name="description" content="A modern, premium‑styled landing page with cool UI, dark mode, and interactive components." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <!-- Sticky Navigation -->
+    <header class="nav">
+        <div class="logo">MySite</div>
+        <nav class="nav-links">
+            <a href="#hero">Home</a>
+            <a href="#features">Features</a>
+            <a href="#testimonials">Testimonials</a>
+            <a href="#faq">FAQ</a>
+            <a href="#footer">Contact</a>
+        </nav>
+        <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+        <button id="mobileMenuBtn" class="mobile-menu-btn" aria-label="Open menu">☰</button>
+    </header>
+
+    <!-- Mobile Navigation Overlay -->
+    <div id="mobileMenu" class="mobile-menu hidden">
+        <button id="closeMobileMenu" class="close-mobile" aria-label="Close menu">✖</button>
+        <nav class="mobile-links">
+            <a href="#hero" class="mobile-link">Home</a>
+            <a href="#features" class="mobile-link">Features</a>
+            <a href="#testimonials" class="mobile-link">Testimonials</a>
+            <a href="#faq" class="mobile-link">FAQ</a>
+            <a href="#footer" class="mobile-link">Contact</a>
+        </nav>
+    </div>
+
+    <!-- Hero Carousel -->
+    <section id="hero" class="hero-carousel">
+        <div class="carousel-slide active">
+            <div class="glass-card">
+                <h1>Welcome to My Awesome Site</h1>
+                <p class="subtitle">Experience a premium UI built with modern CSS techniques.</p>
+                <button class="cta" id="ctaBtn">Get Started</button>
+            </div>
+        </div>
+        <div class="carousel-slide">
+            <div class="glass-card">
+                <h1>Beautiful Design, Seamless Experience</h1>
+                <p class="subtitle">Responsive, accessible, and fast.</p>
+                <button class="cta">Learn More</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section id="features" class="features-section">
+        <h2 class="section-title">Features</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor"/></svg>
+                <h3>Fast Performance</h3>
+                <p>Optimized assets and code for blazing‑fast loading.</p>
+            </div>
+            <div class="feature-card">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                <h3>Responsive Design</h3>
+                <p>Looks great on any device, from phone to desktop.</p>
+            </div>
+            <div class="feature-card">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                <h3>Dark Mode</h3>
+                <p>Switch between light and dark themes instantly.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section id="testimonials" class="testimonials-section">
+        <h2 class="section-title">What People Say</h2>
+        <div class="testimonials-slider">
+            <div class="testimonial-card active">
+                <p class="quote">“A stunning UI that feels premium and modern.”</p>
+                <p class="author">— Alex P.</p>
+            </div>
+            <div class="testimonial-card">
+                <p class="quote">“The dark mode is a game‑changer for night‑time browsing.”</p>
+                <p class="author">— Jamie L.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Accordion -->
+    <section id="faq" class="faq-section">
+        <h2 class="section-title">Frequently Asked Questions</h2>
+        <details class="faq-item">
+            <summary>How do I enable dark mode?</summary>
+            <p>Click the moon icon in the top‑right corner or use the system setting.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Is this site responsive?</summary>
+            <p>Yes! The layout adapts to all screen sizes using flexbox and CSS grid.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Can I customize the colors?</summary>
+            <p>All primary colors are defined as CSS variables in <code>styles.css</code> for easy tweaking.</p>
+        </details>
+    </section>
+
+    <!-- Footer -->
+    <footer id="footer" class="site-footer">
+        <div class="footer-content">
+            <p>&copy; 2026 My Awesome Site. All rights reserved.</p>
+            <div class="social-links">
+                <a href="#" aria-label="Twitter">🐦</a>
+                <a href="#" aria-label="GitHub">🐙</a>
+                <a href="#" aria-label="LinkedIn">🔗</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Awesome Site</title>
+    <meta name="description" content="A modern, premium‑styled landing page with vibrant gradients and subtle animations." />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <main class="hero">
+        <section class="glass-card">
+            <h1>Welcome to My Awesome Site</h1>
+            <p class="subtitle">Experience a premium UI built with modern CSS techniques.</p>
+            <button class="cta" id="ctaBtn">Get Started</button>
+        </section>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>
