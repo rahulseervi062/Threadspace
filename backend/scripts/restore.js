@@ -1,10 +1,24 @@
 import fs from 'fs';
 import path from 'path';
+import dns from 'dns';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
 dotenv.config();
 
-const dataDir = path.resolve(new URL(import.meta.url).pathname, '../../data');
+const dnsServers = (process.env.MONGODB_DNS_SERVERS || '8.8.8.8,1.1.1.1')
+  .split(',')
+  .map((server) => server.trim())
+  .filter(Boolean);
+if (dnsServers.length) {
+  dns.setServers(dnsServers);
+  console.log('Using DNS servers:', dnsServers.join(', '));
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const dataDir = path.resolve(__dirname, '../data');
 const usersFile = path.join(dataDir, 'users.json');
 const postsFile = path.join(dataDir, 'posts.json');
 const messagesFile = path.join(dataDir, 'messages.json');
