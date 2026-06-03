@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings – Threadspace</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <header class="nav">
+        <div class="logo">Threadspace</div>
+        <nav class="nav-links">
+            <a href="index.html">Home</a>
+            <a href="profile.html">Profile</a>
+            <a href="settings.html" class="active">Settings</a>
+        </nav>
+        <button id="themeToggle" class="theme-toggle">🌙</button>
+    </header>
+
+    <main class="settings-container">
+        <aside class="settings-sidebar">
+            <div class="sidebar-header">
+                <h2>Settings</h2>
+                <p>Manage your account preferences</p>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-tab="account">
+                    <span class="icon">👤</span> Account
+                </button>
+                <button class="nav-item" data-tab="notifications">
+                    <span class="icon">🔔</span> Notifications
+                </button>
+                <button class="nav-item" data-tab="privacy">
+                    <span class="icon">🔒</span> Privacy & Security
+                </button>
+                <button class="nav-item" data-tab="appearance">
+                    <span class="icon">🎨</span> Appearance
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="index.html" class="logout-link">Logout</a>
+            </div>
+        </aside>
+
+        <section class="settings-content">
+            <!-- Account Tab -->
+            <div class="tab-pane active" id="account">
+                <h2 class="tab-title">Account Settings</h2>
+                <div class="settings-group">
+                    <div class="setting-item">
+                        <label>Username</label>
+                        <input type="text" value="JohnDoe" class="settings-input" />
+                    </div>
+                    <div class="setting-item">
+                        <label>Email Address</label>
+                        <input type="email" value="john@example.com" class="settings-input" />
+                    </div>
+                    <div class="setting-item">
+                        <label>Bio</label>
+                        <textarea class="settings-input" rows="3">Full-stack developer and UI enthusiast.</textarea>
+                    </div>
+                    <div class="setting-item">
+                        <label>Profile Picture</label>
+                        <div class="file-upload">
+                            <img src="https://placehold.co/50x50" alt="current" class="current-avatar" />
+                            <button class="btn-secondary">Change Photo</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <button class="btn-primary save-btn">Save Changes</button>
+                </div>
+            </div>
+
+            <!-- Notifications Tab -->
+            <div class="tab-pane" id="notifications">
+                <h2 class="tab-title">Notifications</h2>
+                <div class="settings-group">
+                    <div class="setting-item toggle-item">
+                        <div class="toggle-info">
+                            <span class="label">Email Notifications</span>
+                            <p>Receive emails about new replies and mentions.</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item toggle-item">
+                        <div class="toggle-info">
+                            <span class="label">Push Notifications</span>
+                            <p>Get notified instantly on your desktop.</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <button class="btn-primary save-btn">Save Preferences</button>
+                </div>
+            </div>
+
+            <!-- Privacy Tab -->
+            <div class="tab-pane" id="privacy">
+                <h2 class="tab-title">Privacy & Security</h2>
+                <div class="settings-group">
+                    <div class="setting-item">
+                        <label>Account Visibility</label>
+                        <select class="settings-input">
+                            <option value="public">Public</option>
+                            <option value="private">Private</option>
+                            <option value="hidden">Hidden</option>
+                        </select>
+                    </div>
+                    <div class="setting-item toggle-item">
+                        <div class="toggle-info">
+                            <span class="label">Two-Factor Authentication</span>
+                            <p>Add an extra layer of security to your account.</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <button class="btn-primary save-btn">Save Security Settings</button>
+                </div>
+            </div>
+
+            <!-- Appearance Tab -->
+            <div class="tab-pane" id="appearance">
+                <h2 class="tab-title">Appearance</h2>
+                <div class="settings-group">
+                    <div class="setting-item">
+                        <label>Theme Mode</label>
+                        <div class="theme-options">
+                            <div class="theme-card active" data-theme="light">
+                                <div class="theme-box light"></div>
+                                <span>Light</span>
+                            </div>
+                            <div class="theme-card" data-theme="dark">
+                                <div class="theme-box dark"></div>
+                                <span>Dark</span>
+                            </div>
+                            <div class="theme-card" data-theme="system">
+                                <div class="theme-box system"></div>
+                                <span>System</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Accent Color</label>
+                        <div class="color-palette">
+                            <div class="color-circle active" style="background: #6366f1;"></div>
+                            <div class="color-circle" style="background: #ef4444;"></div>
+                            <div class="color-circle" style="background: #10b981;"></div>
+                            <div class="color-circle" style="background: #f59e0b;"></div>
+                            <div class="color-circle" style="background: #ec4899;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <button class="btn-primary save-btn">Apply Changes</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
