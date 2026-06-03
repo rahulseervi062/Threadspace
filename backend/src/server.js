@@ -208,7 +208,23 @@ function findCommentIndex(post, commentId) {
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173"
+    origin: function (origin, callback) {
+      // Allow requests from localhost, the Vercel frontend, and the Render backend itself
+      const allowedOrigins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://threadspace-e2sj.onrender.com",
+        /.*\.vercel\.app$/
+      ];
+
+      if (!origin || allowedOrigins.some(allowed =>
+        typeof allowed === 'string' ? allowed === origin : allowed.test(origin)
+      )) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    }
   })
 );
 app.use(express.json());
