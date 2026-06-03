@@ -114,10 +114,31 @@ if (!fs.existsSync(subredditsFile)) {
   );
 }
 
+function readJsonFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath);
+    if (raw.length >= 2 && raw[0] === 0xFF && raw[1] === 0xFE) {
+      return JSON.parse(raw.slice(2).toString('utf16le'));
+    }
+    if (raw.length >= 3 && raw[0] === 0xEF && raw[1] === 0xBB && raw[2] === 0xBF) {
+      return JSON.parse(raw.toString('utf8'));
+    }
+    if (raw.includes(0x00)) {
+      return JSON.parse(raw.toString('utf16le'));
+    }
+    return JSON.parse(raw.toString('utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function writeJsonFile(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+}
+
 function readPosts() {
   try {
-    const raw = fs.readFileSync(postsFile, "utf8");
-    const posts = JSON.parse(raw);
+    const posts = readJsonFile(postsFile);
     return posts.map((post) => ({
       likes: 0,
       dislikes: 0,
@@ -142,13 +163,12 @@ function readPosts() {
 }
 
 function writePosts(posts) {
-  fs.writeFileSync(postsFile, JSON.stringify(posts, null, 2), "utf8");
+  writeJsonFile(postsFile, posts);
 }
 
 function readUsers() {
   try {
-    const raw = fs.readFileSync(usersFile, "utf8");
-    const users = JSON.parse(raw);
+    const users = readJsonFile(usersFile);
     let changed = false;
 
     const normalizedUsers = users.map((user) => {
@@ -174,20 +194,19 @@ function readUsers() {
 }
 
 function writeUsers(users) {
-  fs.writeFileSync(usersFile, JSON.stringify(users, null, 2), "utf8");
+  writeJsonFile(usersFile, users);
 }
 
 function readSubreddits() {
   try {
-    const raw = fs.readFileSync(subredditsFile, "utf8");
-    return JSON.parse(raw);
+    return readJsonFile(subredditsFile);
   } catch {
     return [];
   }
 }
 
 function writeSubreddits(subreddits) {
-  fs.writeFileSync(subredditsFile, JSON.stringify(subreddits, null, 2), "utf8");
+  writeJsonFile(subredditsFile, subreddits);
 }
 
 function normalizePhoneNumber(value) {
@@ -1154,12 +1173,13 @@ function pushMessage(message) { io.to(message.toEmail).emit('newMessage', messag
 // ============================================
 function readMessages() {
   try {
-    const raw = fs.readFileSync(messagesFile, "utf8");
-    return JSON.parse(raw);
-  } catch { return []; }
+    return readJsonFile(messagesFile);
+  } catch {
+    return [];
+  }
 }
 function writeMessages(msgs) {
-  fs.writeFileSync(messagesFile, JSON.stringify(msgs, null, 2), "utf8");
+  writeJsonFile(messagesFile, msgs);
 }
 
 if (!fs.existsSync(messagesFile)) {

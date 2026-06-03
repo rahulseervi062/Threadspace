@@ -26,8 +26,17 @@ async function run() {
     // Helper to read JSON file safely, default to []
     const readJson = (file) => {
       try {
-        const raw = fs.readFileSync(file, 'utf8');
-        return JSON.parse(raw);
+        const raw = fs.readFileSync(file);
+        if (raw.length >= 2 && raw[0] === 0xFF && raw[1] === 0xFE) {
+          return JSON.parse(raw.slice(2).toString('utf16le'));
+        }
+        if (raw.length >= 3 && raw[0] === 0xEF && raw[1] === 0xBB && raw[2] === 0xBF) {
+          return JSON.parse(raw.toString('utf8'));
+        }
+        if (raw.includes(0x00)) {
+          return JSON.parse(raw.toString('utf16le'));
+        }
+        return JSON.parse(raw.toString('utf8'));
       } catch (err) {
         console.warn(`Warning: failed to parse ${file}, using empty array`);
         return [];
