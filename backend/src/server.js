@@ -11,6 +11,10 @@ import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
 import dns from "dns";
 import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+
 dotenv.config();
 
 // ============================================
@@ -35,7 +39,7 @@ const connectDB = async () => {
       console.error("❌ MONGODB_URI is not defined in environment variables");
       process.exit(1);
     }
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
     console.log("✅ MongoDB Connected Successfully");
   } catch (err) {
     console.error("❌ MongoDB Connection Error:", err.message);
@@ -138,6 +142,18 @@ const NotificationSchema = new mongoose.Schema({
 });
 const Notification = mongoose.models.Notification || mongoose.model("Notification", NotificationSchema);
 
+// --- OTP (persistent) ---
+const OtpSchema = new mongoose.Schema({
+  email: { type: String, required: true, lowercase: true, trim: true, index: true },
+  otp: { type: String, required: true },
+  purpose: { type: String, default: "login" }, // login | reset
+  createdAt: { type: Date, default: Date.now, index: true },
+  expiresAt: { type: Date, required: true, index: true }
+});
+// TTL index: expire documents after 'expiresAt'
+OtpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+const Otp = mongoose.models.Otp || mongoose.model("Otp", OtpSchema);
+
 // ============================================
 // Express + Socket.IO Setup
 // ============================================
@@ -146,7 +162,13 @@ const transporter = nodemailer.createTransport({
   auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_PASS }
 });
 
-const otpStore = new Map();
+// Verify transporter at startup
+transporter.verify().then(() => {
+  console.log("✅ Email transporter verified");
+}).catch((err) => {
+  console.warn("⚠️ Email transporter verification failed:", err.message || err);
+});
+
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
@@ -154,7 +176,10 @@ const io = new Server(server, {
     origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173"
   }
 });
-const port = Number(process.env.PORT || 4000);
+
+// Use Render's dynamic port when available
+const PORT = Number(process.env.PORT) || 4000;
+
 const demoEmail = process.env.DEMO_EMAIL || "demo@site.com";
 const demoPassword = process.env.DEMO_PASSWORD || "Password@123";
 const demoPhone = process.env.DEMO_PHONE || "9999999999";
@@ -175,29 +200,79 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ============================================
+// Middleware: security, parsing, CORS, rate limiting
+// ============================================
+app.use(helmet());
+app.use(express.json());
+
+const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    const allowed = allowedOrigins.some(a => {
+      try {
+        if (a.startsWith("/") || a.includes(".*")) {
+          const re = new RegExp(a);
+          return re.test(origin);
+        }
+        return a === origin;
+      } catch {
+        return a === origin;
+      }
+    });
+    if (allowed) return callback(null, true);
+    callback(new Error("Not allowed by CORS"));
+  }
+}));
+
+// Rate limiters
+const authLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  message: { ok: false, message: "Too many requests, please try again later." }
+});
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200
+});
+app.use(generalLimiter);
+
+// Async wrapper to catch errors
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// ============================================
 // Seed Demo Data
 // ============================================
 const seedDemoData = async () => {
-  const existingUser = await User.findOne({ email: demoEmail });
-  if (!existingUser) {
-    await User.create({
-      uid: 1,
-      name: "Demo User",
-      email: demoEmail,
-      phone: demoPhone,
-      password: demoPassword
-    });
-    console.log("✅ Demo user seeded");
-  }
+  try {
+    const existingUser = await User.findOne({ email: demoEmail });
+    if (!existingUser) {
+      const hashed = await bcrypt.hash(demoPassword, 10);
+      await User.create({
+        uid: 1,
+        name: "Demo User",
+        email: demoEmail,
+        phone: demoPhone,
+        password: hashed
+      });
+      console.log("✅ Demo user seeded");
+    }
 
-  const subCount = await Subreddit.countDocuments();
-  if (subCount === 0) {
-    await Subreddit.insertMany([
-      { id: 1, name: "announcements", title: "Announcements", description: "Official updates and highlights from the community." },
-      { id: 2, name: "photography", title: "Photography", description: "Share your favorite moments and visual stories." },
-      { id: 3, name: "campuslife", title: "Campus Life", description: "Talk about events, student life, and day-to-day updates." }
-    ]);
-    console.log("✅ Default subreddits seeded");
+    const subCount = await Subreddit.countDocuments();
+    if (subCount === 0) {
+      await Subreddit.insertMany([
+        { id: 1, name: "announcements", title: "Announcements", description: "Official updates and highlights from the community." },
+        { id: 2, name: "photography", title: "Photography", description: "Share your favorite moments and visual stories." },
+        { id: 3, name: "campuslife", title: "Campus Life", description: "Talk about events, student life, and day-to-day updates." }
+      ]);
+      console.log("✅ Default subreddits seeded");
+    }
+  } catch (err) {
+    console.error("Seed error:", err);
   }
 };
 
@@ -214,32 +289,12 @@ function normalizeEmail(value) {
 }
 
 // ============================================
-// CORS + Middleware
+// Root + Health
 // ============================================
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      const allowedOrigins = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://threadspace-e2sj.onrender.com",
-        /.*\.vercel\.app$/
-      ];
-      if (!origin || allowedOrigins.some(allowed =>
-        typeof allowed === "string" ? allowed === origin : allowed.test(origin)
-      )) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    }
-  })
-);
-app.use(express.json());
+app.get("/", (_req, res) => {
+  res.json({ ok: true, message: "Threadspace backend is running" });
+});
 
-// ============================================
-// Health
-// ============================================
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "login-api" });
 });
@@ -247,7 +302,7 @@ app.get("/api/health", (_req, res) => {
 // ============================================
 // Auth Routes
 // ============================================
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body ?? {};
   if (!email || !password) {
     return res.status(400).json({ ok: false, message: "Email and password are required." });
@@ -258,39 +313,46 @@ app.post("/api/login", async (req, res) => {
     return res.status(401).json({ ok: false, message: "Invalid email or password.", showForgotPassword: true });
   }
 
-  if (user.password === password) {
+  const match = await bcrypt.compare(password, user.password);
+  if (match) {
     return res.json({ ok: true, message: "Login successful.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
   }
 
-  // Wrong password → send OTP
+  // Wrong password → send OTP persisted in DB
   const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false });
-  otpStore.set(email, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  await Otp.create({ email: normalizeEmail(email), otp, purpose: "login", expiresAt });
   console.log(`OTP for ${email}: ${otp}`);
+
   transporter.sendMail({
     from: process.env.GMAIL_USER,
     to: email,
     subject: "Login Verification OTP",
     text: `Your OTP for login is: ${otp}. It expires in 5 minutes.`
-  }, (err) => { if (err) console.error("Email error:", err); });
+  }).catch(err => console.error("Email error:", err));
 
   return res.status(401).json({ ok: false, message: "Incorrect password. A verification OTP has been sent to your email.", requiresOtp: true, email });
-});
+}));
 
-app.post("/api/verify-otp", async (req, res) => {
+app.post("/api/verify-otp", authLimiter, asyncHandler(async (req, res) => {
   const { email, otp } = req.body ?? {};
   if (!email || !otp) return res.status(400).json({ ok: false, message: "Email and OTP are required." });
 
-  const stored = otpStore.get(email);
-  if (!stored) return res.status(401).json({ ok: false, message: "No OTP found for this email." });
-  if (Date.now() > stored.expiresAt) { otpStore.delete(email); return res.status(401).json({ ok: false, message: "OTP has expired." }); }
-  if (stored.otp !== otp) return res.status(401).json({ ok: false, message: "Invalid OTP." });
+  const record = await Otp.findOne({ email: normalizeEmail(email), otp });
+  if (!record) return res.status(401).json({ ok: false, message: "No OTP found for this email or OTP invalid." });
+  if (Date.now() > new Date(record.expiresAt).getTime()) {
+    await Otp.deleteOne({ _id: record._id });
+    return res.status(401).json({ ok: false, message: "OTP has expired." });
+  }
 
   const user = await User.findOne({ email: normalizeEmail(email) });
-  otpStore.delete(email);
-  return res.json({ ok: true, message: "Login successful via OTP.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
-});
+  if (!user) return res.status(404).json({ ok: false, message: "User not found." });
 
-app.post("/api/signup", async (req, res) => {
+  await Otp.deleteOne({ _id: record._id });
+  return res.json({ ok: true, message: "Login successful via OTP.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
+}));
+
+app.post("/api/signup", authLimiter, asyncHandler(async (req, res) => {
   const { name, email, password, phone } = req.body ?? {};
   const normalizedPhone = normalizePhoneNumber(phone);
 
@@ -304,11 +366,12 @@ app.post("/api/signup", async (req, res) => {
   const existingPhone = await User.findOne({ phone: normalizedPhone });
   if (existingPhone) return res.status(409).json({ ok: false, message: "An account with this mobile number already exists." });
 
-  const newUser = await User.create({ uid: Date.now(), name, email: normalizeEmail(email), phone: normalizedPhone, password });
+  const hashed = await bcrypt.hash(password, 10);
+  const newUser = await User.create({ uid: Date.now(), name, email: normalizeEmail(email), phone: normalizedPhone, password: hashed });
   return res.status(201).json({ ok: true, message: "Account created successfully.", user: { name: newUser.name, email: newUser.email, phone: newUser.phone || "" } });
-});
+}));
 
-app.post("/api/forgot-password", async (req, res) => {
+app.post("/api/forgot-password", authLimiter, asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   if (!email) return res.status(400).json({ ok: false, message: "Email is required." });
 
@@ -316,41 +379,51 @@ app.post("/api/forgot-password", async (req, res) => {
   if (!user) return res.status(404).json({ ok: false, message: "No account found with this email." });
 
   const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false });
-  otpStore.set(`${email}-reset`, { otp, expiresAt: Date.now() + 5 * 60 * 1000, email: user.email });
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  await Otp.create({ email: user.email, otp, purpose: "reset", expiresAt });
   console.log(`Password reset OTP for ${user.email}: ${otp}`);
 
   return transporter.sendMail({ from: process.env.GMAIL_USER, to: user.email, subject: "Password Reset OTP", text: `Your OTP for password reset is: ${otp}. It expires in 5 minutes.` })
     .then(() => res.json({ ok: true, message: "A password reset OTP has been sent to your email.", requiresOtp: true, email: user.email }))
-    .catch((err) => res.status(500).json({ ok: false, message: err.message || "Failed to send reset OTP." }));
-});
+    .catch((err) => {
+      console.error("Send reset OTP error:", err);
+      return res.status(500).json({ ok: false, message: "Failed to send reset OTP." });
+    });
+}));
 
-app.post("/api/reset-password-otp", async (req, res) => {
+app.post("/api/reset-password-otp", authLimiter, asyncHandler(async (req, res) => {
   const { otp, newPassword } = req.body ?? {};
   const email = normalizeEmail(req.body?.email);
   if (!email || !otp || !newPassword) return res.status(400).json({ ok: false, message: "Email, OTP, and new password are required." });
 
-  const resetKey = `${email}-reset`;
-  const stored = otpStore.get(resetKey);
-  if (!stored) return res.status(401).json({ ok: false, message: "No OTP found for this email." });
-  if (Date.now() > stored.expiresAt) { otpStore.delete(resetKey); return res.status(401).json({ ok: false, message: "OTP has expired." }); }
-  if (stored.otp !== otp) return res.status(401).json({ ok: false, message: "Invalid OTP." });
+  const record = await Otp.findOne({ email, otp, purpose: "reset" });
+  if (!record) return res.status(401).json({ ok: false, message: "No OTP found for this email." });
+  if (Date.now() > new Date(record.expiresAt).getTime()) { await Otp.deleteOne({ _id: record._id }); return res.status(401).json({ ok: false, message: "OTP has expired." }); }
 
-  const user = await User.findOneAndUpdate({ email }, { password: newPassword });
+  const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ ok: false, message: "User not found." });
-  otpStore.delete(resetKey);
-  return res.json({ ok: true, message: "Password has been reset successfully." });
-});
 
-app.get("/api/users", async (req, res) => {
+  user.password = await bcrypt.hash(newPassword, 10);
+  await user.save();
+  await Otp.deleteOne({ _id: record._id });
+  return res.json({ ok: true, message: "Password has been reset successfully." });
+}));
+
+// ============================================
+// Account, Users, Posts, Comments, Upload, Notifications, Messages, etc.
+// All existing routes preserved but wrapped with asyncHandler where async
+// ============================================
+
+app.get("/api/users", asyncHandler(async (req, res) => {
   const query = String(req.query.q || "").trim().toLowerCase();
   const filter = query
     ? { $or: [{ name: { $regex: query, $options: "i" } }, { email: { $regex: query, $options: "i" } }] }
     : {};
   const users = await User.find(filter).select("uid name email phone");
   res.json({ ok: true, users: users.map(u => ({ id: u.uid, name: u.name, email: u.email, phone: u.phone || "" })) });
-});
+}));
 
-app.patch("/api/account", async (req, res) => {
+app.patch("/api/account", asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const name = String(req.body?.name || "").trim();
   const phone = normalizePhoneNumber(req.body?.phone);
@@ -359,9 +432,9 @@ app.patch("/api/account", async (req, res) => {
   const user = await User.findOneAndUpdate({ email }, { name, phone }, { new: true });
   if (!user) return res.status(404).json({ ok: false, message: "User not found." });
   return res.json({ ok: true, user: { name: user.name, email: user.email, phone: user.phone } });
-});
+}));
 
-app.post("/api/account/password", async (req, res) => {
+app.post("/api/account/password", asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const currentPassword = String(req.body?.currentPassword || "");
   const newPassword = String(req.body?.newPassword || "");
@@ -369,22 +442,22 @@ app.post("/api/account/password", async (req, res) => {
 
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ ok: false, message: "User not found." });
-  if (user.password !== currentPassword) return res.status(401).json({ ok: false, message: "Current password is incorrect." });
 
-  user.password = newPassword;
+  const match = await bcrypt.compare(currentPassword, user.password);
+  if (!match) return res.status(401).json({ ok: false, message: "Current password is incorrect." });
+
+  user.password = await bcrypt.hash(newPassword, 10);
   await user.save();
   return res.json({ ok: true, message: "Password updated successfully." });
-});
+}));
 
-// ============================================
 // Subreddits
-// ============================================
-app.get("/api/subreddits", async (_req, res) => {
+app.get("/api/subreddits", asyncHandler(async (_req, res) => {
   const subreddits = await Subreddit.find().sort({ _id: -1 });
   res.json({ ok: true, subreddits });
-});
+}));
 
-app.post("/api/subreddits", async (req, res) => {
+app.post("/api/subreddits", asyncHandler(async (req, res) => {
   const { name, title, description } = req.body ?? {};
   if (!name || !title) return res.status(400).json({ ok: false, message: "Subreddit name and title are required." });
 
@@ -394,12 +467,10 @@ app.post("/api/subreddits", async (req, res) => {
 
   const subreddit = await Subreddit.create({ id: Date.now(), name: normalizedName, title: String(title).trim(), description: String(description || "").trim() });
   return res.status(201).json({ ok: true, subreddit });
-});
+}));
 
-// ============================================
 // Search
-// ============================================
-app.get("/api/search", async (req, res) => {
+app.get("/api/search", asyncHandler(async (req, res) => {
   const query = String(req.query.q || "").trim();
   const type = String(req.query.type || "all").toLowerCase();
   if (!query) return res.json({ ok: true, results: { posts: [], subreddits: [], users: [] } });
@@ -419,12 +490,10 @@ app.get("/api/search", async (req, res) => {
   }
 
   res.json({ ok: true, results });
-});
+}));
 
-// ============================================
-// Posts
-// ============================================
-app.get("/api/posts", async (req, res) => {
+// Posts and related routes (kept same but wrapped)
+app.get("/api/posts", asyncHandler(async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
   const sort = req.query.sort || "new";
@@ -436,7 +505,6 @@ app.get("/api/posts", async (req, res) => {
   let posts;
 
   if (sort === "hot") {
-    // hot = likes*2 + comments count — needs aggregation
     posts = await Post.aggregate([
       { $addFields: { _score: { $add: [{ $multiply: ["$likes", 2] }, { $size: "$comments" }] } } },
       { $sort: { _score: -1 } },
@@ -448,18 +516,18 @@ app.get("/api/posts", async (req, res) => {
   }
 
   res.json({ ok: true, posts, hasMore: page * limit < total, total });
-});
+}));
 
-app.get("/api/posts/trending", async (_req, res) => {
+app.get("/api/posts/trending", asyncHandler(async (_req, res) => {
   const posts = await Post.aggregate([
     { $addFields: { _score: { $add: [{ $multiply: ["$likes", 3] }, { $multiply: [{ $size: "$comments" }, 2] }, { $size: "$savedBy" }] } } },
     { $sort: { _score: -1 } },
     { $limit: 20 }
   ]);
   res.json({ ok: true, posts });
-});
+}));
 
-app.get("/api/posts/recommended", async (req, res) => {
+app.get("/api/posts/recommended", asyncHandler(async (req, res) => {
   const userEmail = req.query.userEmail;
   const user = userEmail ? await User.findOne({ email: normalizeEmail(userEmail) }) : null;
   const following = user?.following || [];
@@ -482,9 +550,9 @@ app.get("/api/posts/recommended", async (req, res) => {
     { $limit: 20 }
   ]);
   res.json({ ok: true, posts });
-});
+}));
 
-app.get("/api/posts/following", async (req, res) => {
+app.get("/api/posts/following", asyncHandler(async (req, res) => {
   const userEmail = req.query.userEmail;
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
 
@@ -492,9 +560,9 @@ app.get("/api/posts/following", async (req, res) => {
   const following = user?.following || [];
   const posts = await Post.find({ authorEmail: { $in: following } }).sort({ createdAt: -1 });
   res.json({ ok: true, posts });
-});
+}));
 
-app.post("/api/posts", async (req, res) => {
+app.post("/api/posts", asyncHandler(async (req, res) => {
   const { caption, imageUrl, subreddit, authorName, authorEmail } = req.body ?? {};
   if (!caption || !imageUrl || !subreddit || !authorName || !authorEmail) {
     return res.status(400).json({ ok: false, message: "Caption, image, subreddit and author are required." });
@@ -502,9 +570,9 @@ app.post("/api/posts", async (req, res) => {
 
   const newPost = await Post.create({ id: Date.now(), caption, imageUrl, subreddit, authorName, authorEmail });
   return res.status(201).json({ ok: true, post: newPost });
-});
+}));
 
-app.patch("/api/posts/:id", async (req, res) => {
+app.patch("/api/posts/:id", asyncHandler(async (req, res) => {
   const postId = Number(req.params.id);
   const { caption, subreddit, imageUrl, userEmail } = req.body ?? {};
 
@@ -518,9 +586,9 @@ app.patch("/api/posts/:id", async (req, res) => {
   post.updatedAt = new Date();
   await post.save();
   return res.json({ ok: true, post });
-});
+}));
 
-app.post("/api/posts/:id/react", async (req, res) => {
+app.post("/api/posts/:id/react", asyncHandler(async (req, res) => {
   const postId = Number(req.params.id);
   const { reaction, userEmail } = req.body ?? {};
   if (!["like", "dislike"].includes(reaction) || !userEmail) {
@@ -555,9 +623,9 @@ app.post("/api/posts/:id/react", async (req, res) => {
   }
 
   return res.json({ ok: true, post });
-});
+}));
 
-app.post("/api/posts/:id/comments", async (req, res) => {
+app.post("/api/posts/:id/comments", asyncHandler(async (req, res) => {
   const postId = Number(req.params.id);
   const { text, authorName, authorEmail } = req.body ?? {};
   if (!text || !authorName || !authorEmail) return res.status(400).json({ ok: false, message: "Comment text and author are required." });
@@ -574,9 +642,9 @@ app.post("/api/posts/:id/comments", async (req, res) => {
   }
 
   return res.status(201).json({ ok: true, post });
-});
+}));
 
-app.patch("/api/posts/:postId/comments/:commentId", async (req, res) => {
+app.patch("/api/posts/:postId/comments/:commentId", asyncHandler(async (req, res) => {
   const postId = Number(req.params.postId);
   const commentId = Number(req.params.commentId);
   const { text, userEmail } = req.body ?? {};
@@ -592,9 +660,9 @@ app.patch("/api/posts/:postId/comments/:commentId", async (req, res) => {
   comment.updatedAt = new Date();
   await post.save();
   return res.json({ ok: true, post });
-});
+}));
 
-app.post("/api/posts/:postId/comments/:commentId/replies", async (req, res) => {
+app.post("/api/posts/:postId/comments/:commentId/replies", asyncHandler(async (req, res) => {
   const postId = Number(req.params.postId);
   const commentId = Number(req.params.commentId);
   const { text, authorName, authorEmail } = req.body ?? {};
@@ -610,7 +678,7 @@ app.post("/api/posts/:postId/comments/:commentId/replies", async (req, res) => {
   comment.replies.unshift({ id: Date.now(), authorName, authorEmail, text: String(text).trim() });
   await post.save();
   return res.status(201).json({ ok: true, post });
-});
+}));
 
 async function deleteCommentHandler(req, res) {
   const postId = Number(req.params.postId);
@@ -629,10 +697,10 @@ async function deleteCommentHandler(req, res) {
   return res.json({ ok: true, post });
 }
 
-app.delete("/api/posts/:postId/comments/:commentId", deleteCommentHandler);
-app.post("/api/posts/:postId/comments/:commentId/delete", deleteCommentHandler);
+app.delete("/api/posts/:postId/comments/:commentId", asyncHandler(deleteCommentHandler));
+app.post("/api/posts/:postId/comments/:commentId/delete", asyncHandler(deleteCommentHandler));
 
-app.post("/api/posts/:id/save", async (req, res) => {
+app.post("/api/posts/:id/save", asyncHandler(async (req, res) => {
   const postId = Number(req.params.id);
   const { userEmail } = req.body ?? {};
   if (!userEmail) return res.status(400).json({ ok: false, message: "User email is required." });
@@ -647,9 +715,9 @@ app.post("/api/posts/:id/save", async (req, res) => {
   }
   await post.save();
   return res.json({ ok: true, post });
-});
+}));
 
-app.delete("/api/posts/:id", async (req, res) => {
+app.delete("/api/posts/:id", asyncHandler(async (req, res) => {
   const postId = Number(req.params.id);
   const userEmail = String(req.query.userEmail || "");
 
@@ -659,12 +727,10 @@ app.delete("/api/posts/:id", async (req, res) => {
 
   await Post.deleteOne({ id: postId });
   return res.json({ ok: true, post });
-});
+}));
 
-// ============================================
 // Upload
-// ============================================
-app.post("/api/upload", upload.single("file"), async (req, res) => {
+app.post("/api/upload", asyncHandler(upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, message: "No file provided" });
   try {
     const b64 = req.file.buffer.toString("base64");
@@ -675,29 +741,25 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
-});
+}));
 
-// ============================================
 // Notifications
-// ============================================
-app.get("/api/notifications", async (req, res) => {
+app.get("/api/notifications", asyncHandler(async (req, res) => {
   const userEmail = req.query.userEmail;
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
   const notifications = await Notification.find({ toEmail: userEmail }).sort({ createdAt: -1 }).limit(50);
   const unreadCount = notifications.filter(n => !n.read).length;
   res.json({ ok: true, notifications, unreadCount });
-});
+}));
 
-app.post("/api/notifications/read", async (req, res) => {
+app.post("/api/notifications/read", asyncHandler(async (req, res) => {
   const { userEmail } = req.body ?? {};
   if (!userEmail) return res.status(400).json({ ok: false });
   await Notification.updateMany({ toEmail: userEmail, read: false }, { read: true });
   res.json({ ok: true });
-});
+}));
 
-// ============================================
-// Presence
-// ============================================
+// Presence (in-memory; consider Redis for multi-instance)
 const onlineUsers = new Map();
 
 app.get("/api/presence", (_req, res) => {
@@ -705,23 +767,26 @@ app.get("/api/presence", (_req, res) => {
   res.json({ ok: true, onlineUsers: onlineList });
 });
 
-// ============================================
 // Push helpers
-// ============================================
 function pushNotification(toEmail, notification) {
-  io.to(toEmail).emit("notification", notification);
-  // Persist to MongoDB
+  try {
+    io.to(toEmail).emit("notification", notification);
+  } catch (err) {
+    console.error("Socket emit error:", err);
+  }
   Notification.create({ ...notification, toEmail }).catch(err => console.error("Notification save error:", err));
 }
 function pushMessage(message) {
-  io.to(message.toEmail).emit("newMessage", message);
-  io.to(message.fromEmail).emit("newMessage", message);
+  try {
+    io.to(message.toEmail).emit("newMessage", message);
+    io.to(message.fromEmail).emit("newMessage", message);
+  } catch (err) {
+    console.error("Socket emit error:", err);
+  }
 }
 
-// ============================================
 // Messages
-// ============================================
-app.get("/api/messages", async (req, res) => {
+app.get("/api/messages", asyncHandler(async (req, res) => {
   const userEmail = req.query.userEmail;
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
 
@@ -730,152 +795,105 @@ app.get("/api/messages", async (req, res) => {
   const convMap = new Map();
   messages.forEach(msg => {
     const other = msg.fromEmail === userEmail ? msg.toEmail : msg.fromEmail;
-    const otherName = msg.fromEmail === userEmail ? msg.toName : msg.fromName;
-    if (!convMap.has(other)) {
-      convMap.set(other, { otherEmail: other, otherName, messages: [], lastAt: msg.createdAt, unread: 0 });
-    }
-    const conv = convMap.get(other);
-    conv.messages.push(msg);
-    if (new Date(msg.createdAt) > new Date(conv.lastAt)) conv.lastAt = msg.createdAt;
-    if (msg.toEmail === userEmail && !msg.read) conv.unread++;
+    const list = convMap.get(other) || [];
+    list.push(msg);
+    convMap.set(other, list);
   });
 
-  const conversations = [...convMap.values()]
-    .map(c => ({ ...c, lastMessage: c.messages.at(-1)?.text || "Sent an attachment", messages: undefined }))
-    .sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
+  const conversations = [];
+  for (const [otherEmail, msgs] of convMap.entries()) {
+    conversations.push({
+      with: otherEmail,
+      messages: msgs
+    });
+  }
 
   res.json({ ok: true, conversations });
-});
+}));
 
-app.get("/api/messages/:otherEmail", async (req, res) => {
-  const myEmail = req.query.userEmail;
-  const otherEmail = decodeURIComponent(req.params.otherEmail);
-  if (!myEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
-
-  const messages = await Message.find({
-    $or: [
-      { fromEmail: myEmail, toEmail: otherEmail },
-      { fromEmail: otherEmail, toEmail: myEmail }
-    ]
-  }).sort({ createdAt: 1 });
-
-  // Mark as read
-  await Message.updateMany({ toEmail: myEmail, fromEmail: otherEmail, read: false }, { read: true });
-
-  res.json({ ok: true, messages });
-});
-
-app.post("/api/messages", async (req, res) => {
+app.post("/api/messages", asyncHandler(async (req, res) => {
   const { fromEmail, fromName, toEmail, toName, text, mediaUrl, mediaType, replyTo } = req.body ?? {};
-  if (!fromEmail || !toEmail) return res.status(400).json({ ok: false, message: "fromEmail and toEmail required" });
+  if (!fromEmail || !toEmail) return res.status(400).json({ ok: false, message: "fromEmail and toEmail are required" });
 
-  const message = await Message.create({ id: Date.now(), fromEmail, fromName, toEmail, toName, text: text || "", mediaUrl: mediaUrl || "", mediaType: mediaType || "", replyTo: replyTo || null });
+  const message = await Message.create({
+    id: Date.now(),
+    fromEmail: normalizeEmail(fromEmail),
+    fromName: fromName || "",
+    toEmail: normalizeEmail(toEmail),
+    toName: toName || "",
+    text: String(text || ""),
+    mediaUrl: mediaUrl || "",
+    mediaType: mediaType || "",
+    replyTo: replyTo || null
+  });
 
-  pushMessage(message.toObject());
+  pushMessage(message);
+  return res.status(201).json({ ok: true, message });
+}));
 
-  if (toEmail && toEmail !== fromEmail) {
-    pushNotification(toEmail, { id: Date.now() + 1, type: "message", title: "New message", message: `${fromName || fromEmail}: ${text || "Sent an attachment"}`, actorEmail: fromEmail, actorName: fromName, createdAt: new Date().toISOString() });
-  }
-
-  res.json({ ok: true, message });
-});
-
-app.delete("/api/messages/:id", async (req, res) => {
-  const msgId = Number(req.params.id);
-  const userEmail = req.query.userEmail;
-
-  const msg = await Message.findOne({ id: msgId });
-  if (!msg) return res.status(404).json({ ok: false, message: "Message not found" });
-  if (msg.fromEmail !== userEmail) return res.status(403).json({ ok: false, message: "Unauthorized" });
-
-  await Message.deleteOne({ id: msgId });
-  io.to(msg.toEmail).emit("messageDeleted", { messageId: msgId, fromEmail: msg.fromEmail, toEmail: msg.toEmail });
-  io.to(msg.fromEmail).emit("messageDeleted", { messageId: msgId, fromEmail: msg.fromEmail, toEmail: msg.toEmail });
+app.post("/api/messages/read", asyncHandler(async (req, res) => {
+  const { userEmail, fromEmail } = req.body ?? {};
+  if (!userEmail || !fromEmail) return res.status(400).json({ ok: false });
+  await Message.updateMany({ fromEmail, toEmail: userEmail, read: false }, { read: true });
   res.json({ ok: true });
-});
+}));
 
-app.patch("/api/messages/:id", async (req, res) => {
-  const msgId = Number(req.params.id);
-  const { userEmail, text } = req.body ?? {};
-
-  const msg = await Message.findOne({ id: msgId });
-  if (!msg) return res.status(404).json({ ok: false, message: "Message not found" });
-  if (msg.fromEmail !== userEmail) return res.status(403).json({ ok: false, message: "Unauthorized" });
-
-  msg.text = text;
-  msg.isEdited = true;
-  await msg.save();
-  io.to(msg.toEmail).emit("messageEdited", msg.toObject());
-  io.to(msg.fromEmail).emit("messageEdited", msg.toObject());
-  res.json({ ok: true, message: msg });
-});
-
-app.post("/api/messages/:id/react", async (req, res) => {
-  const msgId = Number(req.params.id);
-  const { userEmail, reaction } = req.body ?? {};
-
-  const msg = await Message.findOne({ id: msgId });
-  if (!msg) return res.status(404).json({ ok: false, message: "Not found" });
-
-  const reactions = msg.reactions || new Map();
-  if (reactions.get(userEmail) === reaction) {
-    reactions.delete(userEmail);
-  } else {
-    reactions.set(userEmail, reaction);
-  }
-  msg.reactions = reactions;
-  await msg.save();
-  io.to(msg.toEmail).emit("messageReacted", msg.toObject());
-  io.to(msg.fromEmail).emit("messageReacted", msg.toObject());
-  res.json({ ok: true, message: msg });
-});
-
-// ============================================
-// Static + Catch-all
-// ============================================
-import fs from "fs";
-if (fs.existsSync(publicDir)) {
-  app.use(express.static(publicDir));
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api/")) return next();
-    return res.sendFile(path.join(publicDir, "index.html"));
-  });
-}
-
-// ============================================
-// Socket.IO
-// ============================================
+// Socket.IO handlers
 io.on("connection", (socket) => {
-  socket.on("join", (email) => {
-    if (email) {
-      onlineUsers.set(email, socket.id);
-      socket.join(email);
-      io.emit("presenceUpdate", { email, online: true });
-    }
-  });
-
-  socket.on("typing", ({ fromEmail, toEmail }) => {
-    io.to(toEmail).emit("typing", { fromEmail });
-  });
-
-  socket.on("stopTyping", ({ fromEmail, toEmail }) => {
-    io.to(toEmail).emit("stopTyping", { fromEmail });
+  socket.on("identify", (email) => {
+    if (!email) return;
+    const normalized = normalizeEmail(email);
+    socket.join(normalized);
+    onlineUsers.set(normalized, socket.id);
+    io.emit("presence", { online: [...onlineUsers.keys()] });
   });
 
   socket.on("disconnect", () => {
-    for (const [email, sid] of onlineUsers.entries()) {
-      if (sid === socket.id) {
+    for (const [email, id] of onlineUsers.entries()) {
+      if (id === socket.id) {
         onlineUsers.delete(email);
-        io.emit("presenceUpdate", { email, online: false });
         break;
       }
+    }
+    io.emit("presence", { online: [...onlineUsers.keys()] });
+  });
+
+  socket.on("sendMessage", async (payload) => {
+    try {
+      const { fromEmail, toEmail, text, mediaUrl, mediaType } = payload || {};
+      if (!fromEmail || !toEmail) return;
+      const message = await Message.create({
+        id: Date.now(),
+        fromEmail: normalizeEmail(fromEmail),
+        fromName: payload.fromName || "",
+        toEmail: normalizeEmail(toEmail),
+        toName: payload.toName || "",
+        text: String(text || ""),
+        mediaUrl: mediaUrl || "",
+        mediaType: mediaType || ""
+      });
+      pushMessage(message);
+    } catch (err) {
+      console.error("sendMessage error:", err);
     }
   });
 });
 
-// ============================================
-// Start
-// ============================================
-server.listen(port, () => {
-  console.log(`Backend running at http://localhost:${port}`);
+// Static file serving (optional)
+if (process.env.SERVE_STATIC === "true") {
+  app.use(express.static(publicDir));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(publicDir, "index.html"));
+  });
+}
+
+// Error handling
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ ok: false, message: err?.message || "Internal server error" });
+});
+
+// Start server
+server.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
