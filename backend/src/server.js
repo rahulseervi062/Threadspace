@@ -2,7 +2,6 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
-import fs from "fs";
 import multer from "multer";
 import nodemailer from "nodemailer";
 import otpGenerator from "otp-generator";
@@ -10,18 +9,144 @@ import path from "path";
 import { Server } from "socket.io";
 import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
+import dns from "dns";
+import mongoose from "mongoose";
 dotenv.config();
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS
+// ============================================
+// DNS Setup
+// ============================================
+const dnsServers = (process.env.MONGODB_DNS_SERVERS || "8.8.8.8,1.1.1.1")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (dnsServers.length) {
+  dns.setServers(dnsServers);
+  console.log("🔧 Using DNS servers:", dnsServers.join(", "));
+}
+
+// ============================================
+// MongoDB Connection
+// ============================================
+const connectDB = async () => {
+  try {
+    const uri = process.env.MONGODB_URI;
+    if (!uri) {
+      console.error("❌ MONGODB_URI is not defined in environment variables");
+      process.exit(1);
+    }
+    await mongoose.connect(uri);
+    console.log("✅ MongoDB Connected Successfully");
+  } catch (err) {
+    console.error("❌ MongoDB Connection Error:", err.message);
+    process.exit(1);
   }
+};
+connectDB();
+
+// ============================================
+// Mongoose Models
+// ============================================
+
+// --- User ---
+const UserSchema = new mongoose.Schema({
+  uid: { type: Number, default: () => Date.now() },
+  name: String,
+  email: { type: String, unique: true, lowercase: true, trim: true },
+  phone: String,
+  password: String,
+  following: [String],
+  followingSubreddits: [String],
+  createdAt: { type: Date, default: Date.now }
+});
+const User = mongoose.models.User || mongoose.model("User", UserSchema);
+
+// --- Post ---
+const ReplySchema = new mongoose.Schema({
+  id: Number,
+  authorName: String,
+  authorEmail: String,
+  text: String,
+  createdAt: { type: Date, default: Date.now }
+});
+const CommentSchema = new mongoose.Schema({
+  id: Number,
+  authorName: String,
+  authorEmail: String,
+  text: String,
+  replies: [ReplySchema],
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: Date
+});
+const PostSchema = new mongoose.Schema({
+  id: { type: Number, default: () => Date.now() },
+  caption: String,
+  imageUrl: String,
+  subreddit: String,
+  authorName: String,
+  authorEmail: String,
+  likes: { type: Number, default: 0 },
+  dislikes: { type: Number, default: 0 },
+  likedBy: [String],
+  dislikedBy: [String],
+  savedBy: [String],
+  comments: [CommentSchema],
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: Date
+});
+const Post = mongoose.models.Post || mongoose.model("Post", PostSchema);
+
+// --- Subreddit ---
+const SubredditSchema = new mongoose.Schema({
+  id: { type: Number, default: () => Date.now() },
+  name: { type: String, unique: true },
+  title: String,
+  description: String
+});
+const Subreddit = mongoose.models.Subreddit || mongoose.model("Subreddit", SubredditSchema);
+
+// --- Message ---
+const MessageSchema = new mongoose.Schema({
+  id: { type: Number, default: () => Date.now() },
+  fromEmail: String,
+  fromName: String,
+  toEmail: String,
+  toName: String,
+  text: { type: String, default: "" },
+  mediaUrl: { type: String, default: "" },
+  mediaType: { type: String, default: "" },
+  replyTo: mongoose.Schema.Types.Mixed,
+  reactions: { type: Map, of: String, default: {} },
+  read: { type: Boolean, default: false },
+  isEdited: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
+});
+const Message = mongoose.models.Message || mongoose.model("Message", MessageSchema);
+
+// --- Notification ---
+const NotificationSchema = new mongoose.Schema({
+  id: Number,
+  toEmail: String,
+  type: String,
+  title: String,
+  message: String,
+  postId: Number,
+  actorEmail: String,
+  actorName: String,
+  read: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
+});
+const Notification = mongoose.models.Notification || mongoose.model("Notification", NotificationSchema);
+
+// ============================================
+// Express + Socket.IO Setup
+// ============================================
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_PASS }
 });
 
 const otpStore = new Map();
-
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
@@ -32,16 +157,11 @@ const io = new Server(server, {
 const port = Number(process.env.PORT || 4000);
 const demoEmail = process.env.DEMO_EMAIL || "demo@site.com";
 const demoPassword = process.env.DEMO_PASSWORD || "Password@123";
+const demoPhone = process.env.DEMO_PHONE || "9999999999";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.resolve(__dirname, "../../frontend/dist");
-const dataDir = path.resolve(__dirname, "../data");
-const postsFile = path.join(dataDir, "posts.json");
-const usersFile = path.join(dataDir, "users.json");
-const subredditsFile = path.join(dataDir, "subreddits.json");
-const messagesFile = path.join(dataDir, "messages.json");
-const collectionsFile = path.join(dataDir, "collections.json");
-const demoPhone = process.env.DEMO_PHONE || "9999999999";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -50,194 +170,63 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configure multer for file uploads
+// Configure multer
 const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-if (!fs.existsSync(postsFile)) {
-  fs.writeFileSync(postsFile, "[]", "utf8");
-}
-
-if (!fs.existsSync(usersFile)) {
-  fs.writeFileSync(
-    usersFile,
-    JSON.stringify(
-      [
-        {
-          id: 1,
-          name: "Demo User",
-          email: demoEmail,
-          phone: demoPhone,
-          password: demoPassword,
-          createdAt: new Date().toISOString()
-        }
-      ],
-      null,
-      2
-    ),
-    "utf8"
-  );
-}
-
-if (!fs.existsSync(subredditsFile)) {
-  fs.writeFileSync(
-    subredditsFile,
-    JSON.stringify(
-      [
-        {
-          id: 1,
-          name: "announcements",
-          title: "Announcements",
-          description: "Official updates and highlights from the community."
-        },
-        {
-          id: 2,
-          name: "photography",
-          title: "Photography",
-          description: "Share your favorite moments and visual stories."
-        },
-        {
-          id: 3,
-          name: "campuslife",
-          title: "Campus Life",
-          description: "Talk about events, student life, and day-to-day updates."
-        }
-      ],
-      null,
-      2
-    ),
-    "utf8"
-  );
-}
-
-function readJsonFile(filePath) {
-  try {
-    const raw = fs.readFileSync(filePath);
-    if (raw.length >= 2 && raw[0] === 0xFF && raw[1] === 0xFE) {
-      return JSON.parse(raw.slice(2).toString('utf16le'));
-    }
-    if (raw.length >= 3 && raw[0] === 0xEF && raw[1] === 0xBB && raw[2] === 0xBF) {
-      return JSON.parse(raw.toString('utf8'));
-    }
-    if (raw.includes(0x00)) {
-      return JSON.parse(raw.toString('utf16le'));
-    }
-    return JSON.parse(raw.toString('utf8'));
-  } catch {
-    return [];
-  }
-}
-
-function writeJsonFile(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-}
-
-function readPosts() {
-  try {
-    const posts = readJsonFile(postsFile);
-    return posts.map((post) => ({
-      likes: 0,
-      dislikes: 0,
-      comments: [],
-      likedBy: [],
-      dislikedBy: [],
-      savedBy: [],
-      ...post
-    })).map((post) => ({
-      ...post,
-      comments: (post.comments || []).map((comment) => ({
-        replies: [],
-        ...comment,
-        replies: (comment.replies || []).map((reply) => ({
-          ...reply
-        }))
-      }))
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function writePosts(posts) {
-  writeJsonFile(postsFile, posts);
-}
-
-function readUsers() {
-  try {
-    const users = readJsonFile(usersFile);
-    let changed = false;
-
-    const normalizedUsers = users.map((user) => {
-      if (!user.phone && user.email === demoEmail) {
-        changed = true;
-        return {
-          ...user,
-          phone: demoPhone
-        };
-      }
-
-      return user;
+// ============================================
+// Seed Demo Data
+// ============================================
+const seedDemoData = async () => {
+  const existingUser = await User.findOne({ email: demoEmail });
+  if (!existingUser) {
+    await User.create({
+      uid: 1,
+      name: "Demo User",
+      email: demoEmail,
+      phone: demoPhone,
+      password: demoPassword
     });
-
-    if (changed) {
-      writeUsers(normalizedUsers);
-    }
-
-    return normalizedUsers;
-  } catch {
-    return [];
+    console.log("✅ Demo user seeded");
   }
-}
 
-function writeUsers(users) {
-  writeJsonFile(usersFile, users);
-}
-
-function readSubreddits() {
-  try {
-    return readJsonFile(subredditsFile);
-  } catch {
-    return [];
+  const subCount = await Subreddit.countDocuments();
+  if (subCount === 0) {
+    await Subreddit.insertMany([
+      { id: 1, name: "announcements", title: "Announcements", description: "Official updates and highlights from the community." },
+      { id: 2, name: "photography", title: "Photography", description: "Share your favorite moments and visual stories." },
+      { id: 3, name: "campuslife", title: "Campus Life", description: "Talk about events, student life, and day-to-day updates." }
+    ]);
+    console.log("✅ Default subreddits seeded");
   }
-}
+};
 
-function writeSubreddits(subreddits) {
-  writeJsonFile(subredditsFile, subreddits);
-}
+mongoose.connection.once("open", seedDemoData);
 
+// ============================================
+// Helpers
+// ============================================
 function normalizePhoneNumber(value) {
   return String(value || "").replace(/\D/g, "");
 }
-
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function findPostIndex(posts, postId) {
-  return posts.findIndex((item) => item.id === postId);
-}
-
-function findCommentIndex(post, commentId) {
-  return (post.comments || []).findIndex((item) => item.id === commentId);
-}
-
+// ============================================
+// CORS + Middleware
+// ============================================
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests from localhost, the Vercel frontend, and the Render backend itself
       const allowedOrigins = [
         "http://localhost:5173",
         "http://localhost:3000",
         "https://threadspace-e2sj.onrender.com",
         /.*\.vercel\.app$/
       ];
-
       if (!origin || allowedOrigins.some(allowed =>
-        typeof allowed === 'string' ? allowed === origin : allowed.test(origin)
+        typeof allowed === "string" ? allowed === origin : allowed.test(origin)
       )) {
         callback(null, true);
       } else {
@@ -248,1094 +237,433 @@ app.use(
 );
 app.use(express.json());
 
+// ============================================
+// Health
+// ============================================
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "login-api" });
 });
 
-app.post("/api/login", (req, res) => {
+// ============================================
+// Auth Routes
+// ============================================
+app.post("/api/login", async (req, res) => {
   const { email, password } = req.body ?? {};
-
   if (!email || !password) {
-    return res.status(400).json({
-      ok: false,
-      message: "Email and password are required."
-    });
+    return res.status(400).json({ ok: false, message: "Email and password are required." });
   }
 
-  const users = readUsers();
-  const user = users.find((item) => item.email === email);
-
+  const user = await User.findOne({ email: normalizeEmail(email) });
   if (!user) {
-    return res.status(401).json({
-      ok: false,
-      message: "Invalid email or password.",
-      showForgotPassword: true
-    });
+    return res.status(401).json({ ok: false, message: "Invalid email or password.", showForgotPassword: true });
   }
 
   if (user.password === password) {
-    return res.json({
-      ok: true,
-      message: "Login successful.",
-      user: {
-        name: user.name,
-        email: user.email,
-        phone: user.phone || ""
-      }
-    });
+    return res.json({ ok: true, message: "Login successful.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
   }
 
-  // Password wrong, send OTP
+  // Wrong password → send OTP
   const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false });
-  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
-  otpStore.set(email, { otp, expiresAt });
-
-  // Send email
-  const mailOptions = {
+  otpStore.set(email, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
+  console.log(`OTP for ${email}: ${otp}`);
+  transporter.sendMail({
     from: process.env.GMAIL_USER,
     to: email,
-    subject: 'Login Verification OTP',
+    subject: "Login Verification OTP",
     text: `Your OTP for login is: ${otp}. It expires in 5 minutes.`
-  };
+  }, (err) => { if (err) console.error("Email error:", err); });
 
-  console.log(`OTP for ${email}: ${otp}`); // For testing - remove in production
-
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) {
-      console.error('Error sending email:', error);
-    } else {
-      console.log('Email sent:', info.response);
-    }
-  });
-
-  return res.status(401).json({
-    ok: false,
-    message: "Incorrect password. A verification OTP has been sent to your email.",
-    requiresOtp: true,
-    email: email
-  });
+  return res.status(401).json({ ok: false, message: "Incorrect password. A verification OTP has been sent to your email.", requiresOtp: true, email });
 });
 
-app.post("/api/verify-otp", (req, res) => {
+app.post("/api/verify-otp", async (req, res) => {
   const { email, otp } = req.body ?? {};
-
-  if (!email || !otp) {
-    return res.status(400).json({
-      ok: false,
-      message: "Email and OTP are required."
-    });
-  }
+  if (!email || !otp) return res.status(400).json({ ok: false, message: "Email and OTP are required." });
 
   const stored = otpStore.get(email);
-  if (!stored) {
-    return res.status(401).json({
-      ok: false,
-      message: "No OTP found for this email."
-    });
-  }
+  if (!stored) return res.status(401).json({ ok: false, message: "No OTP found for this email." });
+  if (Date.now() > stored.expiresAt) { otpStore.delete(email); return res.status(401).json({ ok: false, message: "OTP has expired." }); }
+  if (stored.otp !== otp) return res.status(401).json({ ok: false, message: "Invalid OTP." });
 
-  if (Date.now() > stored.expiresAt) {
-    otpStore.delete(email);
-    return res.status(401).json({
-      ok: false,
-      message: "OTP has expired."
-    });
-  }
-
-  if (stored.otp !== otp) {
-    return res.status(401).json({
-      ok: false,
-      message: "Invalid OTP."
-    });
-  }
-
-  // OTP valid, login the user
-  const users = readUsers();
-  const user = users.find((item) => item.email === email);
+  const user = await User.findOne({ email: normalizeEmail(email) });
   otpStore.delete(email);
-
-  return res.json({
-    ok: true,
-    message: "Login successful via OTP.",
-    user: {
-      name: user.name,
-      email: user.email,
-      phone: user.phone || ""
-    }
-  });
+  return res.json({ ok: true, message: "Login successful via OTP.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
 });
 
-app.post("/api/signup", (req, res) => {
+app.post("/api/signup", async (req, res) => {
   const { name, email, password, phone } = req.body ?? {};
   const normalizedPhone = normalizePhoneNumber(phone);
 
   if (!name || !email || !password || !normalizedPhone) {
-    return res.status(400).json({
-      ok: false,
-      message: "Name, email, mobile number and password are required."
-    });
+    return res.status(400).json({ ok: false, message: "Name, email, mobile number and password are required." });
   }
 
-  const users = readUsers();
-  const existingUser = users.find((item) => item.email === email);
-  const existingPhone = users.find(
-    (item) => normalizePhoneNumber(item.phone) === normalizedPhone
-  );
+  const existingUser = await User.findOne({ email: normalizeEmail(email) });
+  if (existingUser) return res.status(409).json({ ok: false, message: "An account with this email already exists." });
 
-  if (existingUser) {
-    return res.status(409).json({
-      ok: false,
-      message: "An account with this email already exists."
-    });
-  }
+  const existingPhone = await User.findOne({ phone: normalizedPhone });
+  if (existingPhone) return res.status(409).json({ ok: false, message: "An account with this mobile number already exists." });
 
-  if (existingPhone) {
-    return res.status(409).json({
-      ok: false,
-      message: "An account with this mobile number already exists."
-    });
-  }
-
-  const newUser = {
-    id: Date.now(),
-    name,
-    email,
-    phone: normalizedPhone,
-    password,
-    createdAt: new Date().toISOString()
-  };
-
-  users.push(newUser);
-  writeUsers(users);
-
-  return res.status(201).json({
-    ok: true,
-    message: "Account created successfully.",
-    user: {
-      name: newUser.name,
-      email: newUser.email,
-      phone: newUser.phone || ""
-    }
-  });
+  const newUser = await User.create({ uid: Date.now(), name, email: normalizeEmail(email), phone: normalizedPhone, password });
+  return res.status(201).json({ ok: true, message: "Account created successfully.", user: { name: newUser.name, email: newUser.email, phone: newUser.phone || "" } });
 });
 
-app.post("/api/forgot-password", (req, res) => {
+app.post("/api/forgot-password", async (req, res) => {
   const email = normalizeEmail(req.body?.email);
+  if (!email) return res.status(400).json({ ok: false, message: "Email is required." });
 
-  if (!email) {
-    return res.status(400).json({
-      ok: false,
-      message: "Email is required."
-    });
-  }
-
-  const users = readUsers();
-  const user = users.find((item) => normalizeEmail(item.email) === email);
-
-  if (!user) {
-    return res.status(404).json({
-      ok: false,
-      message: "No account found with this email."
-    });
-  }
+  const user = await User.findOne({ email });
+  if (!user) return res.status(404).json({ ok: false, message: "No account found with this email." });
 
   const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false });
-  const expiresAt = Date.now() + 5 * 60 * 1000;
-  otpStore.set(`${email}-reset`, {
-    otp,
-    expiresAt,
-    email: user.email
-  });
-
-  const mailOptions = {
-    from: process.env.GMAIL_USER,
-    to: user.email,
-    subject: "Password Reset OTP",
-    text: `Your OTP for password reset is: ${otp}. It expires in 5 minutes.`
-  };
-
+  otpStore.set(`${email}-reset`, { otp, expiresAt: Date.now() + 5 * 60 * 1000, email: user.email });
   console.log(`Password reset OTP for ${user.email}: ${otp}`);
 
-  return transporter.sendMail(mailOptions)
-    .then(() =>
-      res.json({
-        ok: true,
-        message: "A password reset OTP has been sent to your email.",
-        requiresOtp: true,
-        email: user.email
-      })
-    )
-    .catch((error) =>
-      res.status(500).json({
-        ok: false,
-        message: error.message || "Failed to send reset OTP."
-      })
-    );
+  return transporter.sendMail({ from: process.env.GMAIL_USER, to: user.email, subject: "Password Reset OTP", text: `Your OTP for password reset is: ${otp}. It expires in 5 minutes.` })
+    .then(() => res.json({ ok: true, message: "A password reset OTP has been sent to your email.", requiresOtp: true, email: user.email }))
+    .catch((err) => res.status(500).json({ ok: false, message: err.message || "Failed to send reset OTP." }));
 });
 
-app.post("/api/reset-password-otp", (req, res) => {
+app.post("/api/reset-password-otp", async (req, res) => {
   const { otp, newPassword } = req.body ?? {};
   const email = normalizeEmail(req.body?.email);
-
-  if (!email || !otp || !newPassword) {
-    return res.status(400).json({
-      ok: false,
-      message: "Email, OTP, and new password are required."
-    });
-  }
+  if (!email || !otp || !newPassword) return res.status(400).json({ ok: false, message: "Email, OTP, and new password are required." });
 
   const resetKey = `${email}-reset`;
   const stored = otpStore.get(resetKey);
-  if (!stored) {
-    return res.status(401).json({
-      ok: false,
-      message: "No OTP found for this email."
-    });
-  }
+  if (!stored) return res.status(401).json({ ok: false, message: "No OTP found for this email." });
+  if (Date.now() > stored.expiresAt) { otpStore.delete(resetKey); return res.status(401).json({ ok: false, message: "OTP has expired." }); }
+  if (stored.otp !== otp) return res.status(401).json({ ok: false, message: "Invalid OTP." });
 
-  if (Date.now() > stored.expiresAt) {
-    otpStore.delete(resetKey);
-    return res.status(401).json({
-      ok: false,
-      message: "OTP has expired."
-    });
-  }
-
-  if (stored.otp !== otp) {
-    return res.status(401).json({
-      ok: false,
-      message: "Invalid OTP."
-    });
-  }
-
-  const users = readUsers();
-  const user = users.find((item) => normalizeEmail(item.email) === email);
-  if (!user) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  user.password = newPassword;
-  writeUsers(users);
+  const user = await User.findOneAndUpdate({ email }, { password: newPassword });
+  if (!user) return res.status(404).json({ ok: false, message: "User not found." });
   otpStore.delete(resetKey);
-
-  return res.json({
-    ok: true,
-    message: "Password has been reset successfully."
-  });
+  return res.json({ ok: true, message: "Password has been reset successfully." });
 });
 
-app.get("/api/users", (req, res) => {
+app.get("/api/users", async (req, res) => {
   const query = String(req.query.q || "").trim().toLowerCase();
-  const users = readUsers().map((user) => ({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone || ""
-  }));
-
-  const filtered = query
-    ? users.filter(
-        (user) =>
-          user.name.toLowerCase().includes(query) ||
-          user.email.toLowerCase().includes(query)
-      )
-    : users;
-
-  res.json({
-    ok: true,
-    users: filtered
-  });
+  const filter = query
+    ? { $or: [{ name: { $regex: query, $options: "i" } }, { email: { $regex: query, $options: "i" } }] }
+    : {};
+  const users = await User.find(filter).select("uid name email phone");
+  res.json({ ok: true, users: users.map(u => ({ id: u.uid, name: u.name, email: u.email, phone: u.phone || "" })) });
 });
 
-app.patch("/api/account", (req, res) => {
+app.patch("/api/account", async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const name = String(req.body?.name || "").trim();
   const phone = normalizePhoneNumber(req.body?.phone);
+  if (!email || !name || !phone) return res.status(400).json({ ok: false, message: "Email, name, and mobile number are required." });
 
-  if (!email || !name || !phone) {
-    return res.status(400).json({
-      ok: false,
-      message: "Email, name, and mobile number are required."
-    });
-  }
-
-  const users = readUsers();
-  const userIndex = users.findIndex((item) => normalizeEmail(item.email) === email);
-
-  if (userIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  users[userIndex] = {
-    ...users[userIndex],
-    name,
-    phone
-  };
-  writeUsers(users);
-
-  return res.json({
-    ok: true,
-    user: {
-      name: users[userIndex].name,
-      email: users[userIndex].email,
-      phone: users[userIndex].phone
-    }
-  });
+  const user = await User.findOneAndUpdate({ email }, { name, phone }, { new: true });
+  if (!user) return res.status(404).json({ ok: false, message: "User not found." });
+  return res.json({ ok: true, user: { name: user.name, email: user.email, phone: user.phone } });
 });
 
-app.post("/api/account/password", (req, res) => {
+app.post("/api/account/password", async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const currentPassword = String(req.body?.currentPassword || "");
   const newPassword = String(req.body?.newPassword || "");
+  if (!email || !currentPassword || !newPassword) return res.status(400).json({ ok: false, message: "Email, current password, and new password are required." });
 
-  if (!email || !currentPassword || !newPassword) {
-    return res.status(400).json({
-      ok: false,
-      message: "Email, current password, and new password are required."
-    });
-  }
+  const user = await User.findOne({ email });
+  if (!user) return res.status(404).json({ ok: false, message: "User not found." });
+  if (user.password !== currentPassword) return res.status(401).json({ ok: false, message: "Current password is incorrect." });
 
-  const users = readUsers();
-  const userIndex = users.findIndex((item) => normalizeEmail(item.email) === email);
-
-  if (userIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "User not found."
-    });
-  }
-
-  if (users[userIndex].password !== currentPassword) {
-    return res.status(401).json({
-      ok: false,
-      message: "Current password is incorrect."
-    });
-  }
-
-  users[userIndex] = {
-    ...users[userIndex],
-    password: newPassword
-  };
-  writeUsers(users);
-
-  return res.json({
-    ok: true,
-    message: "Password updated successfully."
-  });
+  user.password = newPassword;
+  await user.save();
+  return res.json({ ok: true, message: "Password updated successfully." });
 });
 
-app.get("/api/subreddits", (_req, res) => {
-  res.json({
-    ok: true,
-    subreddits: readSubreddits()
-  });
+// ============================================
+// Subreddits
+// ============================================
+app.get("/api/subreddits", async (_req, res) => {
+  const subreddits = await Subreddit.find().sort({ _id: -1 });
+  res.json({ ok: true, subreddits });
 });
 
-app.post("/api/subreddits", (req, res) => {
+app.post("/api/subreddits", async (req, res) => {
   const { name, title, description } = req.body ?? {};
-
-  if (!name || !title) {
-    return res.status(400).json({
-      ok: false,
-      message: "Subreddit name and title are required."
-    });
-  }
+  if (!name || !title) return res.status(400).json({ ok: false, message: "Subreddit name and title are required." });
 
   const normalizedName = String(name).trim().toLowerCase().replace(/\s+/g, "");
-  const subreddits = readSubreddits();
-  const exists = subreddits.find((item) => item.name === normalizedName);
+  const exists = await Subreddit.findOne({ name: normalizedName });
+  if (exists) return res.status(409).json({ ok: false, message: "This subreddit already exists." });
 
-  if (exists) {
-    return res.status(409).json({
-      ok: false,
-      message: "This subreddit already exists."
-    });
-  }
-
-  const subreddit = {
-    id: Date.now(),
-    name: normalizedName,
-    title: String(title).trim(),
-    description: String(description || "").trim()
-  };
-
-  subreddits.unshift(subreddit);
-  writeSubreddits(subreddits);
-
-  return res.status(201).json({
-    ok: true,
-    subreddit
-  });
+  const subreddit = await Subreddit.create({ id: Date.now(), name: normalizedName, title: String(title).trim(), description: String(description || "").trim() });
+  return res.status(201).json({ ok: true, subreddit });
 });
 
-app.get("/api/search", (req, res) => {
-  const query = String(req.query.q || "").trim().toLowerCase();
+// ============================================
+// Search
+// ============================================
+app.get("/api/search", async (req, res) => {
+  const query = String(req.query.q || "").trim();
   const type = String(req.query.type || "all").toLowerCase();
-
-  if (!query) {
-    return res.json({
-      ok: true,
-      results: { posts: [], subreddits: [], users: [] }
-    });
-  }
+  if (!query) return res.json({ ok: true, results: { posts: [], subreddits: [], users: [] } });
 
   const results = { posts: [], subreddits: [], users: [] };
+  const re = { $regex: query, $options: "i" };
 
   if (type === "all" || type === "posts") {
-    const posts = readPosts();
-    results.posts = posts.filter((post) =>
-      post.caption.toLowerCase().includes(query) ||
-      post.subreddit.toLowerCase().includes(query) ||
-      post.authorName.toLowerCase().includes(query)
-    );
+    results.posts = await Post.find({ $or: [{ caption: re }, { subreddit: re }, { authorName: re }] });
   }
-
   if (type === "all" || type === "subreddits") {
-    const subreddits = readSubreddits();
-    results.subreddits = subreddits.filter((subreddit) =>
-      subreddit.name.toLowerCase().includes(query) ||
-      subreddit.title.toLowerCase().includes(query) ||
-      subreddit.description.toLowerCase().includes(query)
-    );
+    results.subreddits = await Subreddit.find({ $or: [{ name: re }, { title: re }, { description: re }] });
   }
-
   if (type === "all" || type === "users") {
-    const users = readUsers();
-    results.users = users.filter((user) =>
-      user.name.toLowerCase().includes(query) ||
-      user.email.toLowerCase().includes(query)
-    ).map((user) => ({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone || ""
-    }));
+    const users = await User.find({ $or: [{ name: re }, { email: re }] }).select("uid name email phone");
+    results.users = users.map(u => ({ id: u.uid, name: u.name, email: u.email, phone: u.phone || "" }));
   }
 
-  res.json({
-    ok: true,
-    results
-  });
+  res.json({ ok: true, results });
 });
 
-app.get("/api/posts", (req, res) => {
+// ============================================
+// Posts
+// ============================================
+app.get("/api/posts", async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
   const sort = req.query.sort || "new";
-  let posts = readPosts();
+
+  let sortQuery = { createdAt: -1 };
+  if (sort === "top") sortQuery = { likes: -1 };
+
+  const total = await Post.countDocuments();
+  let posts;
+
   if (sort === "hot") {
-    posts = posts.sort((a, b) => ((b.likes||0)*2+(b.comments?.length||0)) - ((a.likes||0)*2+(a.comments?.length||0)));
-  } else if (sort === "top") {
-    posts = posts.sort((a, b) => (b.likes||0) - (a.likes||0));
+    // hot = likes*2 + comments count — needs aggregation
+    posts = await Post.aggregate([
+      { $addFields: { _score: { $add: [{ $multiply: ["$likes", 2] }, { $size: "$comments" }] } } },
+      { $sort: { _score: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit }
+    ]);
   } else {
-    posts = posts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    posts = await Post.find().sort(sortQuery).skip((page - 1) * limit).limit(limit);
   }
-  const start = (page-1)*limit;
-  const paginated = posts.slice(start, start+limit);
-  res.json({ ok: true, posts: paginated, hasMore: start+limit < posts.length, total: posts.length });
+
+  res.json({ ok: true, posts, hasMore: page * limit < total, total });
 });
 
-app.get("/api/posts/trending", (_req, res) => {
-  const posts = readPosts();
-  const trending = posts.map(p => ({...p, _score: (p.likes||0)*3+(p.comments?.length||0)*2+(p.savedBy?.length||0)})).sort((a,b)=>b._score-a._score).slice(0,20);
-  res.json({ ok: true, posts: trending });
-});
-
-app.get("/api/posts/recommended", (req, res) => {
-  const userEmail = req.query.userEmail;
-  const posts = readPosts(); const users = readUsers();
-  const user = users.find(u=>u.email===userEmail);
-  const following = user?.following||[]; const circles = user?.followingSubreddits||[];
-  const scored = posts.map(p => { let s=0; if(following.includes(p.authorEmail)||following.includes(p.authorName))s+=10; if(circles.includes(p.subreddit))s+=5; s+=(p.likes||0)*0.5+(p.comments?.length||0)*0.3; return {...p,_score:s}; }).sort((a,b)=>b._score-a._score).slice(0,20);
-  res.json({ ok: true, posts: scored });
-});
-
-app.get("/api/posts/following", (req, res) => {
-  const userEmail = req.query.userEmail;
-  if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
-  const users = readUsers();
-  const user = users.find(u=>u.email===userEmail);
-  const following = user?.following||[];
-  const posts = readPosts().filter(p=>following.includes(p.authorEmail)||following.includes(p.authorName)).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+app.get("/api/posts/trending", async (_req, res) => {
+  const posts = await Post.aggregate([
+    { $addFields: { _score: { $add: [{ $multiply: ["$likes", 3] }, { $multiply: [{ $size: "$comments" }, 2] }, { $size: "$savedBy" }] } } },
+    { $sort: { _score: -1 } },
+    { $limit: 20 }
+  ]);
   res.json({ ok: true, posts });
 });
 
-app.post("/api/posts", (req, res) => {
-  const { caption, imageUrl, subreddit, authorName, authorEmail } = req.body ?? {};
+app.get("/api/posts/recommended", async (req, res) => {
+  const userEmail = req.query.userEmail;
+  const user = userEmail ? await User.findOne({ email: normalizeEmail(userEmail) }) : null;
+  const following = user?.following || [];
+  const circles = user?.followingSubreddits || [];
 
-  if (!caption || !imageUrl || !subreddit || !authorName || !authorEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "Caption, image, subreddit and author are required."
-    });
-  }
-
-  const posts = readPosts();
-  const newPost = {
-    id: Date.now(),
-    caption,
-    imageUrl,
-    subreddit,
-    authorName,
-    authorEmail,
-    likes: 0,
-    dislikes: 0,
-    comments: [],
-    likedBy: [],
-    dislikedBy: [],
-    savedBy: [],
-    createdAt: new Date().toISOString()
-  };
-
-  posts.unshift(newPost);
-  writePosts(posts);
-
-  return res.status(201).json({
-    ok: true,
-    post: newPost
-  });
+  const posts = await Post.aggregate([
+    {
+      $addFields: {
+        _score: {
+          $add: [
+            { $cond: [{ $in: ["$authorEmail", following] }, 10, 0] },
+            { $cond: [{ $in: ["$subreddit", circles] }, 5, 0] },
+            { $multiply: ["$likes", 0.5] },
+            { $multiply: [{ $size: "$comments" }, 0.3] }
+          ]
+        }
+      }
+    },
+    { $sort: { _score: -1 } },
+    { $limit: 20 }
+  ]);
+  res.json({ ok: true, posts });
 });
 
-app.patch("/api/posts/:id", (req, res) => {
+app.get("/api/posts/following", async (req, res) => {
+  const userEmail = req.query.userEmail;
+  if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
+
+  const user = await User.findOne({ email: normalizeEmail(userEmail) });
+  const following = user?.following || [];
+  const posts = await Post.find({ authorEmail: { $in: following } }).sort({ createdAt: -1 });
+  res.json({ ok: true, posts });
+});
+
+app.post("/api/posts", async (req, res) => {
+  const { caption, imageUrl, subreddit, authorName, authorEmail } = req.body ?? {};
+  if (!caption || !imageUrl || !subreddit || !authorName || !authorEmail) {
+    return res.status(400).json({ ok: false, message: "Caption, image, subreddit and author are required." });
+  }
+
+  const newPost = await Post.create({ id: Date.now(), caption, imageUrl, subreddit, authorName, authorEmail });
+  return res.status(201).json({ ok: true, post: newPost });
+});
+
+app.patch("/api/posts/:id", async (req, res) => {
   const postId = Number(req.params.id);
   const { caption, subreddit, imageUrl, userEmail } = req.body ?? {};
-  const posts = readPosts();
-  const postIndex = findPostIndex(posts, postId);
 
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
+  if (post.authorEmail !== userEmail) return res.status(403).json({ ok: false, message: "Only the post owner can edit this post." });
 
-  if (posts[postIndex].authorEmail !== userEmail) {
-    return res.status(403).json({
-      ok: false,
-      message: "Only the post owner can edit this post."
-    });
-  }
-
-  posts[postIndex] = {
-    ...posts[postIndex],
-    caption: String(caption || posts[postIndex].caption).trim(),
-    subreddit: String(subreddit || posts[postIndex].subreddit).trim(),
-    imageUrl: imageUrl || posts[postIndex].imageUrl,
-    updatedAt: new Date().toISOString()
-  };
-  writePosts(posts);
-
-  return res.json({
-    ok: true,
-    post: posts[postIndex]
-  });
+  post.caption = String(caption || post.caption).trim();
+  post.subreddit = String(subreddit || post.subreddit).trim();
+  post.imageUrl = imageUrl || post.imageUrl;
+  post.updatedAt = new Date();
+  await post.save();
+  return res.json({ ok: true, post });
 });
 
-app.post("/api/posts/:id/react", (req, res) => {
+app.post("/api/posts/:id/react", async (req, res) => {
   const postId = Number(req.params.id);
   const { reaction, userEmail } = req.body ?? {};
-
   if (!["like", "dislike"].includes(reaction) || !userEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "Reaction must be like or dislike."
-    });
+    return res.status(400).json({ ok: false, message: "Reaction must be like or dislike." });
   }
 
-  const posts = readPosts();
-  const postIndex = posts.findIndex((item) => item.id === postId);
-
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
-
-  const post = posts[postIndex];
-  post.likedBy = post.likedBy || [];
-  post.dislikedBy = post.dislikedBy || [];
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
 
   if (reaction === "like") {
     if (post.likedBy.includes(userEmail)) {
-      post.likedBy = post.likedBy.filter((email) => email !== userEmail);
+      post.likedBy = post.likedBy.filter(e => e !== userEmail);
     } else {
-      post.likedBy = [...post.likedBy, userEmail];
-      post.dislikedBy = post.dislikedBy.filter((email) => email !== userEmail);
+      post.likedBy.push(userEmail);
+      post.dislikedBy = post.dislikedBy.filter(e => e !== userEmail);
     }
-  } else if (post.dislikedBy.includes(userEmail)) {
-    post.dislikedBy = post.dislikedBy.filter((email) => email !== userEmail);
   } else {
-    post.dislikedBy = [...post.dislikedBy, userEmail];
-    post.likedBy = post.likedBy.filter((email) => email !== userEmail);
+    if (post.dislikedBy.includes(userEmail)) {
+      post.dislikedBy = post.dislikedBy.filter(e => e !== userEmail);
+    } else {
+      post.dislikedBy.push(userEmail);
+      post.likedBy = post.likedBy.filter(e => e !== userEmail);
+    }
   }
 
   post.likes = post.likedBy.length;
   post.dislikes = post.dislikedBy.length;
+  await post.save();
 
-  writePosts(posts);
-
-  // Push real-time notification to post author
   if (reaction === "like" && post.likedBy.includes(userEmail) && post.authorEmail && post.authorEmail !== userEmail) {
-    pushNotification(post.authorEmail, {
-      id: Date.now(),
-      type: "like",
-      title: "New like",
-      message: `Someone liked your post`,
-      postId: post.id,
-      actorEmail: userEmail,
-      createdAt: new Date().toISOString()
-    });
+    pushNotification(post.authorEmail, { id: Date.now(), type: "like", title: "New like", message: "Someone liked your post", postId: post.id, actorEmail: userEmail, createdAt: new Date().toISOString() });
   }
 
-  return res.json({
-    ok: true,
-    post
-  });
+  return res.json({ ok: true, post });
 });
 
-app.post("/api/posts/:id/comments", (req, res) => {
+app.post("/api/posts/:id/comments", async (req, res) => {
   const postId = Number(req.params.id);
   const { text, authorName, authorEmail } = req.body ?? {};
+  if (!text || !authorName || !authorEmail) return res.status(400).json({ ok: false, message: "Comment text and author are required." });
 
-  if (!text || !authorName || !authorEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "Comment text and author are required."
-    });
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
+
+  const comment = { id: Date.now(), authorName, authorEmail, text: String(text).trim(), replies: [] };
+  post.comments.unshift(comment);
+  await post.save();
+
+  if (post.authorEmail && post.authorEmail !== authorEmail) {
+    pushNotification(post.authorEmail, { id: Date.now(), type: "comment", title: "New comment", message: `${authorName} commented on your post`, postId, actorEmail: authorEmail, actorName: authorName, createdAt: new Date().toISOString() });
   }
 
-  const posts = readPosts();
-  const postIndex = posts.findIndex((item) => item.id === postId);
-
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
-
-  const comment = {
-    id: Date.now(),
-    authorName,
-    authorEmail,
-    text: String(text).trim(),
-    createdAt: new Date().toISOString()
-  };
-
-  posts[postIndex].comments.unshift(comment);
-  writePosts(posts);
-
-  // Push real-time notification to post author
-  const postAuthor = posts[postIndex].authorEmail;
-  if (postAuthor && postAuthor !== authorEmail) {
-    pushNotification(postAuthor, {
-      id: Date.now(),
-      type: "comment",
-      title: "New comment",
-      message: `${authorName} commented on your post`,
-      postId,
-      actorEmail: authorEmail,
-      actorName: authorName,
-      createdAt: new Date().toISOString()
-    });
-  }
-
-  return res.status(201).json({
-    ok: true,
-    post: posts[postIndex]
-  });
+  return res.status(201).json({ ok: true, post });
 });
 
-app.patch("/api/posts/:postId/comments/:commentId", (req, res) => {
+app.patch("/api/posts/:postId/comments/:commentId", async (req, res) => {
   const postId = Number(req.params.postId);
   const commentId = Number(req.params.commentId);
   const { text, userEmail } = req.body ?? {};
-  const posts = readPosts();
-  const postIndex = findPostIndex(posts, postId);
 
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
 
-  const commentIndex = findCommentIndex(posts[postIndex], commentId);
-  if (commentIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Comment not found."
-    });
-  }
+  const comment = post.comments.find(c => c.id === commentId);
+  if (!comment) return res.status(404).json({ ok: false, message: "Comment not found." });
+  if (normalizeEmail(comment.authorEmail) !== normalizeEmail(userEmail)) return res.status(403).json({ ok: false, message: "Only the comment owner can edit this comment." });
 
-  const comment = posts[postIndex].comments[commentIndex];
-  if (normalizeEmail(comment.authorEmail) !== normalizeEmail(userEmail)) {
-    return res.status(403).json({
-      ok: false,
-      message: "Only the comment owner can edit this comment."
-    });
-  }
-
-  posts[postIndex].comments[commentIndex] = {
-    ...comment,
-    text: String(text || "").trim(),
-    updatedAt: new Date().toISOString()
-  };
-  writePosts(posts);
-
-  return res.json({
-    ok: true,
-    post: posts[postIndex]
-  });
+  comment.text = String(text || "").trim();
+  comment.updatedAt = new Date();
+  await post.save();
+  return res.json({ ok: true, post });
 });
 
-app.post("/api/posts/:postId/comments/:commentId/replies", (req, res) => {
+app.post("/api/posts/:postId/comments/:commentId/replies", async (req, res) => {
   const postId = Number(req.params.postId);
   const commentId = Number(req.params.commentId);
   const { text, authorName, authorEmail } = req.body ?? {};
-  const posts = readPosts();
-  const postIndex = findPostIndex(posts, postId);
+  if (!text || !authorName || !authorEmail) return res.status(400).json({ ok: false, message: "Reply text and author are required." });
 
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
 
-  const commentIndex = findCommentIndex(posts[postIndex], commentId);
-  if (commentIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Comment not found."
-    });
-  }
+  const comment = post.comments.find(c => c.id === commentId);
+  if (!comment) return res.status(404).json({ ok: false, message: "Comment not found." });
 
-  if (!text || !authorName || !authorEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "Reply text and author are required."
-    });
-  }
-
-  const reply = {
-    id: Date.now(),
-    authorName,
-    authorEmail,
-    text: String(text).trim(),
-    createdAt: new Date().toISOString()
-  };
-
-  posts[postIndex].comments[commentIndex].replies = posts[postIndex].comments[commentIndex].replies || [];
-  posts[postIndex].comments[commentIndex].replies.unshift(reply);
-  writePosts(posts);
-
-  return res.status(201).json({
-    ok: true,
-    post: posts[postIndex]
-  });
+  comment.replies = comment.replies || [];
+  comment.replies.unshift({ id: Date.now(), authorName, authorEmail, text: String(text).trim() });
+  await post.save();
+  return res.status(201).json({ ok: true, post });
 });
 
-function deleteCommentHandler(req, res) {
+async function deleteCommentHandler(req, res) {
   const postId = Number(req.params.postId);
   const commentId = Number(req.params.commentId);
   const userEmail = normalizeEmail(req.query.userEmail || req.body?.userEmail);
-  const posts = readPosts();
-  const postIndex = posts.findIndex((item) => item.id === postId);
+  if (!userEmail) return res.status(403).json({ ok: false, message: "You must be logged in to delete this comment." });
 
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
 
-  const post = posts[postIndex];
-  const commentIndex = (post.comments || []).findIndex((item) => item.id === commentId);
+  const idx = post.comments.findIndex(c => c.id === commentId);
+  if (idx === -1) return res.status(404).json({ ok: false, message: "Comment not found." });
 
-  if (commentIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Comment not found."
-    });
-  }
-
-  const comment = post.comments[commentIndex];
-  if (!userEmail) {
-    return res.status(403).json({
-      ok: false,
-      message: "You must be logged in to delete this comment."
-    });
-  }
-
-  post.comments.splice(commentIndex, 1);
-  writePosts(posts);
-
-  return res.json({
-    ok: true,
-    post
-  });
+  post.comments.splice(idx, 1);
+  await post.save();
+  return res.json({ ok: true, post });
 }
 
 app.delete("/api/posts/:postId/comments/:commentId", deleteCommentHandler);
 app.post("/api/posts/:postId/comments/:commentId/delete", deleteCommentHandler);
 
-app.post("/api/posts/:id/save", (req, res) => {
+app.post("/api/posts/:id/save", async (req, res) => {
   const postId = Number(req.params.id);
   const { userEmail } = req.body ?? {};
+  if (!userEmail) return res.status(400).json({ ok: false, message: "User email is required." });
 
-  if (!userEmail) {
-    return res.status(400).json({
-      ok: false,
-      message: "User email is required."
-    });
-  }
-
-  const posts = readPosts();
-  const postIndex = posts.findIndex((item) => item.id === postId);
-
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
-
-  const post = posts[postIndex];
-  post.savedBy = post.savedBy || [];
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
 
   if (post.savedBy.includes(userEmail)) {
-    post.savedBy = post.savedBy.filter((email) => email !== userEmail);
+    post.savedBy = post.savedBy.filter(e => e !== userEmail);
   } else {
-    post.savedBy = [...post.savedBy, userEmail];
+    post.savedBy.push(userEmail);
   }
-
-  writePosts(posts);
-
-  return res.json({
-    ok: true,
-    post
-  });
+  await post.save();
+  return res.json({ ok: true, post });
 });
 
-app.delete("/api/posts/:id", (req, res) => {
+app.delete("/api/posts/:id", async (req, res) => {
   const postId = Number(req.params.id);
   const userEmail = String(req.query.userEmail || "");
-  const posts = readPosts();
-  const postIndex = posts.findIndex((item) => item.id === postId);
 
-  if (postIndex === -1) {
-    return res.status(404).json({
-      ok: false,
-      message: "Post not found."
-    });
-  }
+  const post = await Post.findOne({ id: postId });
+  if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
+  if (post.authorEmail !== userEmail) return res.status(403).json({ ok: false, message: "Only the post owner can delete this post." });
 
-  if (posts[postIndex].authorEmail !== userEmail) {
-    return res.status(403).json({
-      ok: false,
-      message: "Only the post owner can delete this post."
-    });
-  }
-
-  const [deletedPost] = posts.splice(postIndex, 1);
-  writePosts(posts);
-
-  return res.json({
-    ok: true,
-    post: deletedPost
-  });
+  await Post.deleteOne({ id: postId });
+  return res.json({ ok: true, post });
 });
-
-app.use(express.static(publicDir));
-
-app.get("*", (req, res, next) => {
-  if (req.path.startsWith("/api/")) {
-    return next();
-  }
-
-  return res.sendFile(path.join(publicDir, "index.html"));
-});
-
-const onlineUsers = new Map();
-function pushNotification(toEmail, notification) { io.to(toEmail).emit('notification', notification); if(global.persistNotification) global.persistNotification(toEmail, notification); }
-function pushMessage(message) { io.to(message.toEmail).emit('newMessage', message); io.to(message.fromEmail).emit('newMessage', message); }
 
 // ============================================
-// Messages API
+// Upload
 // ============================================
-function readMessages() {
-  try {
-    return readJsonFile(messagesFile);
-  } catch {
-    return [];
-  }
-}
-function writeMessages(msgs) {
-  writeJsonFile(messagesFile, msgs);
-}
-
-if (!fs.existsSync(messagesFile)) {
-  fs.writeFileSync(messagesFile, "[]", "utf8");
-}
-
-// Get conversations for a user
-app.get("/api/messages", (req, res) => {
-  const userEmail = req.query.userEmail;
-  if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
-
-  const messages = readMessages();
-  const convMap = new Map();
-
-  messages.forEach(msg => {
-    const isParticipant = msg.fromEmail === userEmail || msg.toEmail === userEmail;
-    if (!isParticipant) return;
-    const other = msg.fromEmail === userEmail ? msg.toEmail : msg.fromEmail;
-    const otherName = msg.fromEmail === userEmail ? msg.toName : msg.fromName;
-    if (!convMap.has(other)) {
-      convMap.set(other, { otherEmail: other, otherName, messages: [], lastAt: msg.createdAt, unread: 0 });
-    }
-    const conv = convMap.get(other);
-    conv.messages.push(msg);
-    if (new Date(msg.createdAt) > new Date(conv.lastAt)) conv.lastAt = msg.createdAt;
-    if (msg.toEmail === userEmail && !msg.read) conv.unread++;
-  });
-
-  const conversations = [...convMap.values()]
-    .map(c => ({
-      ...c,
-      lastMessage: c.messages.at(-1)?.text || "Sent an attachment",
-      messages: undefined
-    }))
-    .sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
-
-  res.json({ ok: true, conversations });
-});
-
-// Get messages in a thread
-app.get("/api/messages/:otherEmail", (req, res) => {
-  const myEmail = req.query.userEmail;
-  const otherEmail = decodeURIComponent(req.params.otherEmail);
-  if (!myEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
-
-  const messages = readMessages().filter(m =>
-    (m.fromEmail === myEmail && m.toEmail === otherEmail) ||
-    (m.fromEmail === otherEmail && m.toEmail === myEmail)
-  );
-
-  // Mark as read
-  const all = readMessages();
-  let changed = false;
-  all.forEach(m => {
-    if (m.toEmail === myEmail && m.fromEmail === otherEmail && !m.read) {
-      m.read = true; changed = true;
-    }
-  });
-  if (changed) writeMessages(all);
-
-  res.json({ ok: true, messages });
-});
-
-// Send a message
-app.post("/api/messages", (req, res) => {
-  const { fromEmail, fromName, toEmail, toName, text, mediaUrl, mediaType, replyTo } = req.body ?? {};
-  if (!fromEmail || !toEmail) return res.status(400).json({ ok: false, message: "fromEmail and toEmail required" });
-
-  const message = {
-    id: Date.now(),
-    fromEmail, fromName, toEmail, toName,
-    text: text || "",
-    mediaUrl: mediaUrl || "",
-    mediaType: mediaType || "",
-    replyTo: replyTo || null,
-    read: false,
-    createdAt: new Date().toISOString()
-  };
-
-  const messages = readMessages();
-  messages.push(message);
-  writeMessages(messages);
-
-  // Push via Socket.IO
-  pushMessage(message);
-
-  // Push notification to recipient
-  if (toEmail && toEmail !== fromEmail) {
-    pushNotification(toEmail, {
-      id: Date.now() + 1,
-      type: "message",
-      title: "New message",
-      message: `${fromName || fromEmail}: ${text || "Sent an attachment"}`,
-      actorEmail: fromEmail,
-      actorName: fromName,
-      createdAt: new Date().toISOString()
-    });
-  }
-
-  res.json({ ok: true, message });
-});
-
-// Delete a message
-app.delete("/api/messages/:id", (req, res) => {
-  const msgId = Number(req.params.id);
-  const userEmail = req.query.userEmail;
-  const messages = readMessages();
-  const idx = messages.findIndex(m => m.id === msgId);
-  if (idx === -1) return res.status(404).json({ ok: false, message: "Message not found" });
-  if (messages[idx].fromEmail !== userEmail) return res.status(403).json({ ok: false, message: "Unauthorized" });
-
-  const [deleted] = messages.splice(idx, 1);
-  writeMessages(messages);
-  io.to(deleted.toEmail).emit("messageDeleted", { messageId: msgId, fromEmail: deleted.fromEmail, toEmail: deleted.toEmail });
-  io.to(deleted.fromEmail).emit("messageDeleted", { messageId: msgId, fromEmail: deleted.fromEmail, toEmail: deleted.toEmail });
-  res.json({ ok: true });
-});
-
-// Edit a message
-app.patch("/api/messages/:id", (req, res) => {
-  const msgId = Number(req.params.id);
-  const { userEmail, text } = req.body ?? {};
-  const messages = readMessages();
-  const idx = messages.findIndex(m => m.id === msgId);
-  if (idx === -1) return res.status(404).json({ ok: false, message: "Message not found" });
-  if (messages[idx].fromEmail !== userEmail) return res.status(403).json({ ok: false, message: "Unauthorized" });
-  messages[idx].text = text;
-  messages[idx].isEdited = true;
-  writeMessages(messages);
-  const updated = messages[idx];
-  io.to(updated.toEmail).emit("messageEdited", updated);
-  io.to(updated.fromEmail).emit("messageEdited", updated);
-  res.json({ ok: true, message: updated });
-});
-
-// React to a message
-app.post("/api/messages/:id/react", (req, res) => {
-  const msgId = Number(req.params.id);
-  const { userEmail, reaction } = req.body ?? {};
-  const messages = readMessages();
-  const idx = messages.findIndex(m => m.id === msgId);
-  if (idx === -1) return res.status(404).json({ ok: false, message: "Not found" });
-  messages[idx].reactions = messages[idx].reactions || {};
-  if (messages[idx].reactions[userEmail] === reaction) {
-    delete messages[idx].reactions[userEmail];
-  } else {
-    messages[idx].reactions[userEmail] = reaction;
-  }
-  writeMessages(messages);
-  const updated = messages[idx];
-  io.to(updated.toEmail).emit("messageReacted", updated);
-  io.to(updated.fromEmail).emit("messageReacted", updated);
-  res.json({ ok: true, message: updated });
-});
-
-// Upload media
 app.post("/api/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, message: "No file provided" });
   try {
@@ -1350,62 +678,178 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
 });
 
 // ============================================
-// Notifications API
+// Notifications
 // ============================================
-const notificationsFile = path.join(dataDir, "notifications.json");
-if (!fs.existsSync(notificationsFile)) fs.writeFileSync(notificationsFile, "{}", "utf8");
-
-function readNotificationsDB() {
-  try { return JSON.parse(fs.readFileSync(notificationsFile, "utf8")); } catch { return {}; }
-}
-function writeNotificationsDB(db) {
-  fs.writeFileSync(notificationsFile, JSON.stringify(db, null, 2), "utf8");
-}
-
-// Save notifications when pushed
-const originalPushNotification = pushNotification;
-// Override to also persist
-global.persistNotification = (toEmail, notification) => {
-  const db = readNotificationsDB();
-  if (!db[toEmail]) db[toEmail] = [];
-  db[toEmail].unshift(notification);
-  db[toEmail] = db[toEmail].slice(0, 100); // keep last 100
-  writeNotificationsDB(db);
-};
-
-app.get("/api/notifications", (req, res) => {
+app.get("/api/notifications", async (req, res) => {
   const userEmail = req.query.userEmail;
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
-  const db = readNotificationsDB();
-  const notifications = (db[userEmail] || []).slice(0, 50);
+  const notifications = await Notification.find({ toEmail: userEmail }).sort({ createdAt: -1 }).limit(50);
   const unreadCount = notifications.filter(n => !n.read).length;
   res.json({ ok: true, notifications, unreadCount });
 });
 
-app.post("/api/notifications/read", (req, res) => {
+app.post("/api/notifications/read", async (req, res) => {
   const { userEmail } = req.body ?? {};
   if (!userEmail) return res.status(400).json({ ok: false });
-  const db = readNotificationsDB();
-  if (db[userEmail]) db[userEmail] = db[userEmail].map(n => ({ ...n, read: true }));
-  writeNotificationsDB(db);
+  await Notification.updateMany({ toEmail: userEmail, read: false }, { read: true });
   res.json({ ok: true });
 });
 
+// ============================================
 // Presence
+// ============================================
+const onlineUsers = new Map();
+
 app.get("/api/presence", (_req, res) => {
   const onlineList = [...onlineUsers.keys()].map(email => ({ email }));
   res.json({ ok: true, onlineUsers: onlineList });
 });
 
 // ============================================
-// Socket.IO — Real-time presence, notifications, messaging
+// Push helpers
 // ============================================
+function pushNotification(toEmail, notification) {
+  io.to(toEmail).emit("notification", notification);
+  // Persist to MongoDB
+  Notification.create({ ...notification, toEmail }).catch(err => console.error("Notification save error:", err));
+}
+function pushMessage(message) {
+  io.to(message.toEmail).emit("newMessage", message);
+  io.to(message.fromEmail).emit("newMessage", message);
+}
 
+// ============================================
+// Messages
+// ============================================
+app.get("/api/messages", async (req, res) => {
+  const userEmail = req.query.userEmail;
+  if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
+
+  const messages = await Message.find({ $or: [{ fromEmail: userEmail }, { toEmail: userEmail }] }).sort({ createdAt: 1 });
+
+  const convMap = new Map();
+  messages.forEach(msg => {
+    const other = msg.fromEmail === userEmail ? msg.toEmail : msg.fromEmail;
+    const otherName = msg.fromEmail === userEmail ? msg.toName : msg.fromName;
+    if (!convMap.has(other)) {
+      convMap.set(other, { otherEmail: other, otherName, messages: [], lastAt: msg.createdAt, unread: 0 });
+    }
+    const conv = convMap.get(other);
+    conv.messages.push(msg);
+    if (new Date(msg.createdAt) > new Date(conv.lastAt)) conv.lastAt = msg.createdAt;
+    if (msg.toEmail === userEmail && !msg.read) conv.unread++;
+  });
+
+  const conversations = [...convMap.values()]
+    .map(c => ({ ...c, lastMessage: c.messages.at(-1)?.text || "Sent an attachment", messages: undefined }))
+    .sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
+
+  res.json({ ok: true, conversations });
+});
+
+app.get("/api/messages/:otherEmail", async (req, res) => {
+  const myEmail = req.query.userEmail;
+  const otherEmail = decodeURIComponent(req.params.otherEmail);
+  if (!myEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
+
+  const messages = await Message.find({
+    $or: [
+      { fromEmail: myEmail, toEmail: otherEmail },
+      { fromEmail: otherEmail, toEmail: myEmail }
+    ]
+  }).sort({ createdAt: 1 });
+
+  // Mark as read
+  await Message.updateMany({ toEmail: myEmail, fromEmail: otherEmail, read: false }, { read: true });
+
+  res.json({ ok: true, messages });
+});
+
+app.post("/api/messages", async (req, res) => {
+  const { fromEmail, fromName, toEmail, toName, text, mediaUrl, mediaType, replyTo } = req.body ?? {};
+  if (!fromEmail || !toEmail) return res.status(400).json({ ok: false, message: "fromEmail and toEmail required" });
+
+  const message = await Message.create({ id: Date.now(), fromEmail, fromName, toEmail, toName, text: text || "", mediaUrl: mediaUrl || "", mediaType: mediaType || "", replyTo: replyTo || null });
+
+  pushMessage(message.toObject());
+
+  if (toEmail && toEmail !== fromEmail) {
+    pushNotification(toEmail, { id: Date.now() + 1, type: "message", title: "New message", message: `${fromName || fromEmail}: ${text || "Sent an attachment"}`, actorEmail: fromEmail, actorName: fromName, createdAt: new Date().toISOString() });
+  }
+
+  res.json({ ok: true, message });
+});
+
+app.delete("/api/messages/:id", async (req, res) => {
+  const msgId = Number(req.params.id);
+  const userEmail = req.query.userEmail;
+
+  const msg = await Message.findOne({ id: msgId });
+  if (!msg) return res.status(404).json({ ok: false, message: "Message not found" });
+  if (msg.fromEmail !== userEmail) return res.status(403).json({ ok: false, message: "Unauthorized" });
+
+  await Message.deleteOne({ id: msgId });
+  io.to(msg.toEmail).emit("messageDeleted", { messageId: msgId, fromEmail: msg.fromEmail, toEmail: msg.toEmail });
+  io.to(msg.fromEmail).emit("messageDeleted", { messageId: msgId, fromEmail: msg.fromEmail, toEmail: msg.toEmail });
+  res.json({ ok: true });
+});
+
+app.patch("/api/messages/:id", async (req, res) => {
+  const msgId = Number(req.params.id);
+  const { userEmail, text } = req.body ?? {};
+
+  const msg = await Message.findOne({ id: msgId });
+  if (!msg) return res.status(404).json({ ok: false, message: "Message not found" });
+  if (msg.fromEmail !== userEmail) return res.status(403).json({ ok: false, message: "Unauthorized" });
+
+  msg.text = text;
+  msg.isEdited = true;
+  await msg.save();
+  io.to(msg.toEmail).emit("messageEdited", msg.toObject());
+  io.to(msg.fromEmail).emit("messageEdited", msg.toObject());
+  res.json({ ok: true, message: msg });
+});
+
+app.post("/api/messages/:id/react", async (req, res) => {
+  const msgId = Number(req.params.id);
+  const { userEmail, reaction } = req.body ?? {};
+
+  const msg = await Message.findOne({ id: msgId });
+  if (!msg) return res.status(404).json({ ok: false, message: "Not found" });
+
+  const reactions = msg.reactions || new Map();
+  if (reactions.get(userEmail) === reaction) {
+    reactions.delete(userEmail);
+  } else {
+    reactions.set(userEmail, reaction);
+  }
+  msg.reactions = reactions;
+  await msg.save();
+  io.to(msg.toEmail).emit("messageReacted", msg.toObject());
+  io.to(msg.fromEmail).emit("messageReacted", msg.toObject());
+  res.json({ ok: true, message: msg });
+});
+
+// ============================================
+// Static + Catch-all
+// ============================================
+import fs from "fs";
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/")) return next();
+    return res.sendFile(path.join(publicDir, "index.html"));
+  });
+}
+
+// ============================================
+// Socket.IO
+// ============================================
 io.on("connection", (socket) => {
   socket.on("join", (email) => {
     if (email) {
       onlineUsers.set(email, socket.id);
-      socket.join(email); // personal room
+      socket.join(email);
       io.emit("presenceUpdate", { email, online: true });
     }
   });
@@ -1429,9 +873,9 @@ io.on("connection", (socket) => {
   });
 });
 
-// pushNotification and pushMessage defined above
-
-
+// ============================================
+// Start
+// ============================================
 server.listen(port, () => {
   console.log(`Backend running at http://localhost:${port}`);
 });
