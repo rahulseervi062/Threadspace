@@ -224,13 +224,16 @@ const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 app.use(helmet());
 app.use(express.json());
 
-const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
-  .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
+const rawCorsOrigins = String(process.env.CORS_ORIGIN || "").trim();
+const allowedOrigins = rawCorsOrigins === "*"
+  ? []
+  : rawCorsOrigins
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
 
 app.use(cors({
-  origin: function (origin, callback) {
+  origin: rawCorsOrigins === "*" || !rawCorsOrigins ? true : function (origin, callback) {
     if (!origin) return callback(null, true);
     const allowed = allowedOrigins.some(a => {
       try {
