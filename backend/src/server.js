@@ -30,22 +30,46 @@ if (dnsServers.length) {
 }
 
 // ============================================
-// MongoDB Connection
+// MongoDB Connection — with retry logic
 // ============================================
-const connectDB = async () => {
-  try {
-    const uri = process.env.MONGODB_URI;
-    if (!uri) {
-      console.error("❌ MONGODB_URI is not defined in environment variables");
-      process.exit(1);
-    }
-    await mongoose.connect(uri);
-    console.log("✅ MongoDB Connected Successfully");
-  } catch (err) {
-    console.error("❌ MongoDB Connection Error:", err.message);
+const connectDB = async (retries = 5, delay = 3000) => {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    console.error("❌ MONGODB_URI is not defined in environment variables");
     process.exit(1);
   }
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await mongoose.connect(uri, {
+        serverSelectionTimeoutMS: 10000, // 10s timeout per attempt
+        socketTimeoutMS: 45000,
+      });
+      console.log("✅ MongoDB Connected Successfully");
+      return;
+    } catch (err) {
+      console.error(`❌ MongoDB attempt ${attempt}/${retries} failed: ${err.message}`);
+      if (attempt < retries) {
+        console.log(`🔁 Retrying in ${delay / 1000}s...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+
+  console.error("❌ All MongoDB connection attempts failed. Exiting.");
+  process.exit(1);
 };
+
+// Handle mongoose disconnection events
+mongoose.connection.on("disconnected", () => {
+  console.warn("⚠️ MongoDB disconnected. Attempting reconnect...");
+  connectDB(3, 5000);
+});
+
+mongoose.connection.on("error", (err) => {
+  console.error("❌ MongoDB runtime error:", err.message);
+});
+
 connectDB();
 
 // ============================================
@@ -146,11 +170,10 @@ const Notification = mongoose.models.Notification || mongoose.model("Notificatio
 const OtpSchema = new mongoose.Schema({
   email: { type: String, required: true, lowercase: true, trim: true, index: true },
   otp: { type: String, required: true },
-  purpose: { type: String, default: "login" }, // login | reset
+  purpose: { type: String, default: "login" },
   createdAt: { type: Date, default: Date.now, index: true },
   expiresAt: { type: Date, required: true, index: true }
 });
-// TTL index: expire documents after 'expiresAt'
 OtpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 const Otp = mongoose.models.Otp || mongoose.model("Otp", OtpSchema);
 
@@ -162,7 +185,6 @@ const transporter = nodemailer.createTransport({
   auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_PASS }
 });
 
-// Verify transporter at startup
 transporter.verify().then(() => {
   console.log("✅ Email transporter verified");
 }).catch((err) => {
@@ -177,7 +199,6 @@ const io = new Server(server, {
   }
 });
 
-// Use Render's dynamic port when available
 const PORT = Number(process.env.PORT) || 4000;
 
 const demoEmail = process.env.DEMO_EMAIL || "demo@site.com";
@@ -188,19 +209,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.resolve(__dirname, "../../frontend/dist");
 
-// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configure multer
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ============================================
-// Middleware: security, parsing, CORS, rate limiting
+// Middleware
 // ============================================
 app.use(helmet());
 app.use(express.json());
@@ -216,8 +235,7 @@ app.use(cors({
     const allowed = allowedOrigins.some(a => {
       try {
         if (a.startsWith("/") || a.includes(".*")) {
-          const re = new RegExp(a);
-          return re.test(origin);
+          return new RegExp(a).test(origin);
         }
         return a === origin;
       } catch {
@@ -229,19 +247,24 @@ app.use(cors({
   }
 }));
 
-// Rate limiters
 const authLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 10,
   message: { ok: false, message: "Too many requests, please try again later." }
 });
-const generalLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 200
-});
+const generalLimiter = rateLimit({ windowMs: 60 * 1000, max: 200 });
 app.use(generalLimiter);
 
-// Async wrapper to catch errors
+// ============================================
+// DB readiness middleware — returns 503 if MongoDB not connected
+// ============================================
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ ok: false, message: "Server is starting up, please try again in a moment." });
+  }
+  next();
+});
+
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // ============================================
@@ -252,13 +275,7 @@ const seedDemoData = async () => {
     const existingUser = await User.findOne({ email: demoEmail });
     if (!existingUser) {
       const hashed = await bcrypt.hash(demoPassword, 10);
-      await User.create({
-        uid: 1,
-        name: "Demo User",
-        email: demoEmail,
-        phone: demoPhone,
-        password: hashed
-      });
+      await User.create({ uid: 1, name: "Demo User", email: demoEmail, phone: demoPhone, password: hashed });
       console.log("✅ Demo user seeded");
     }
 
@@ -296,7 +313,9 @@ app.get("/", (_req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "login-api" });
+  const dbStatus = mongoose.connection.readyState;
+  const statusMap = { 0: "disconnected", 1: "connected", 2: "connecting", 3: "disconnecting" };
+  res.json({ ok: dbStatus === 1, service: "login-api", db: statusMap[dbStatus] || "unknown" });
 });
 
 // ============================================
@@ -304,25 +323,17 @@ app.get("/api/health", (_req, res) => {
 // ============================================
 app.post("/api/login", authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body ?? {};
-  if (!email || !password) {
-    return res.status(400).json({ ok: false, message: "Email and password are required." });
-  }
+  if (!email || !password) return res.status(400).json({ ok: false, message: "Email and password are required." });
 
   const user = await User.findOne({ email: normalizeEmail(email) });
-  if (!user) {
-    return res.status(401).json({ ok: false, message: "Invalid email or password.", showForgotPassword: true });
-  }
+  if (!user) return res.status(401).json({ ok: false, message: "Invalid email or password.", showForgotPassword: true });
 
   const match = await bcrypt.compare(password, user.password);
-  if (match) {
-    return res.json({ ok: true, message: "Login successful.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
-  }
+  if (match) return res.json({ ok: true, message: "Login successful.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
 
-  // Wrong password → send OTP persisted in DB
   const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false });
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
   await Otp.create({ email: normalizeEmail(email), otp, purpose: "login", expiresAt });
-  console.log(`OTP for ${email}: ${otp}`);
 
   transporter.sendMail({
     from: process.env.GMAIL_USER,
@@ -355,10 +366,7 @@ app.post("/api/verify-otp", authLimiter, asyncHandler(async (req, res) => {
 app.post("/api/signup", authLimiter, asyncHandler(async (req, res) => {
   const { name, email, password, phone } = req.body ?? {};
   const normalizedPhone = normalizePhoneNumber(phone);
-
-  if (!name || !email || !password || !normalizedPhone) {
-    return res.status(400).json({ ok: false, message: "Name, email, mobile number and password are required." });
-  }
+  if (!name || !email || !password || !normalizedPhone) return res.status(400).json({ ok: false, message: "Name, email, mobile number and password are required." });
 
   const existingUser = await User.findOne({ email: normalizeEmail(email) });
   if (existingUser) return res.status(409).json({ ok: false, message: "An account with this email already exists." });
@@ -381,7 +389,6 @@ app.post("/api/forgot-password", authLimiter, asyncHandler(async (req, res) => {
   const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false });
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
   await Otp.create({ email: user.email, otp, purpose: "reset", expiresAt });
-  console.log(`Password reset OTP for ${user.email}: ${otp}`);
 
   return transporter.sendMail({ from: process.env.GMAIL_USER, to: user.email, subject: "Password Reset OTP", text: `Your OTP for password reset is: ${otp}. It expires in 5 minutes.` })
     .then(() => res.json({ ok: true, message: "A password reset OTP has been sent to your email.", requiresOtp: true, email: user.email }))
@@ -398,7 +405,10 @@ app.post("/api/reset-password-otp", authLimiter, asyncHandler(async (req, res) =
 
   const record = await Otp.findOne({ email, otp, purpose: "reset" });
   if (!record) return res.status(401).json({ ok: false, message: "No OTP found for this email." });
-  if (Date.now() > new Date(record.expiresAt).getTime()) { await Otp.deleteOne({ _id: record._id }); return res.status(401).json({ ok: false, message: "OTP has expired." }); }
+  if (Date.now() > new Date(record.expiresAt).getTime()) {
+    await Otp.deleteOne({ _id: record._id });
+    return res.status(401).json({ ok: false, message: "OTP has expired." });
+  }
 
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ ok: false, message: "User not found." });
@@ -410,10 +420,8 @@ app.post("/api/reset-password-otp", authLimiter, asyncHandler(async (req, res) =
 }));
 
 // ============================================
-// Account, Users, Posts, Comments, Upload, Notifications, Messages, etc.
-// All existing routes preserved but wrapped with asyncHandler where async
+// Users
 // ============================================
-
 app.get("/api/users", asyncHandler(async (req, res) => {
   const query = String(req.query.q || "").trim().toLowerCase();
   const filter = query
@@ -451,7 +459,9 @@ app.post("/api/account/password", asyncHandler(async (req, res) => {
   return res.json({ ok: true, message: "Password updated successfully." });
 }));
 
+// ============================================
 // Subreddits
+// ============================================
 app.get("/api/subreddits", asyncHandler(async (_req, res) => {
   const subreddits = await Subreddit.find().sort({ _id: -1 });
   res.json({ ok: true, subreddits });
@@ -469,7 +479,9 @@ app.post("/api/subreddits", asyncHandler(async (req, res) => {
   return res.status(201).json({ ok: true, subreddit });
 }));
 
+// ============================================
 // Search
+// ============================================
 app.get("/api/search", asyncHandler(async (req, res) => {
   const query = String(req.query.q || "").trim();
   const type = String(req.query.type || "all").toLowerCase();
@@ -478,12 +490,8 @@ app.get("/api/search", asyncHandler(async (req, res) => {
   const results = { posts: [], subreddits: [], users: [] };
   const re = { $regex: query, $options: "i" };
 
-  if (type === "all" || type === "posts") {
-    results.posts = await Post.find({ $or: [{ caption: re }, { subreddit: re }, { authorName: re }] });
-  }
-  if (type === "all" || type === "subreddits") {
-    results.subreddits = await Subreddit.find({ $or: [{ name: re }, { title: re }, { description: re }] });
-  }
+  if (type === "all" || type === "posts") results.posts = await Post.find({ $or: [{ caption: re }, { subreddit: re }, { authorName: re }] });
+  if (type === "all" || type === "subreddits") results.subreddits = await Subreddit.find({ $or: [{ name: re }, { title: re }, { description: re }] });
   if (type === "all" || type === "users") {
     const users = await User.find({ $or: [{ name: re }, { email: re }] }).select("uid name email phone");
     results.users = users.map(u => ({ id: u.uid, name: u.name, email: u.email, phone: u.phone || "" }));
@@ -492,12 +500,13 @@ app.get("/api/search", asyncHandler(async (req, res) => {
   res.json({ ok: true, results });
 }));
 
-// Posts and related routes (kept same but wrapped)
+// ============================================
+// Posts
+// ============================================
 app.get("/api/posts", asyncHandler(async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
   const sort = req.query.sort || "new";
-
   let sortQuery = { createdAt: -1 };
   if (sort === "top") sortQuery = { likes: -1 };
 
@@ -567,7 +576,6 @@ app.post("/api/posts", asyncHandler(async (req, res) => {
   if (!caption || !imageUrl || !subreddit || !authorName || !authorEmail) {
     return res.status(400).json({ ok: false, message: "Caption, image, subreddit and author are required." });
   }
-
   const newPost = await Post.create({ id: Date.now(), caption, imageUrl, subreddit, authorName, authorEmail });
   return res.status(201).json({ ok: true, post: newPost });
 }));
@@ -591,9 +599,7 @@ app.patch("/api/posts/:id", asyncHandler(async (req, res) => {
 app.post("/api/posts/:id/react", asyncHandler(async (req, res) => {
   const postId = Number(req.params.id);
   const { reaction, userEmail } = req.body ?? {};
-  if (!["like", "dislike"].includes(reaction) || !userEmail) {
-    return res.status(400).json({ ok: false, message: "Reaction must be like or dislike." });
-  }
+  if (!["like", "dislike"].includes(reaction) || !userEmail) return res.status(400).json({ ok: false, message: "Reaction must be like or dislike." });
 
   const post = await Post.findOne({ id: postId });
   if (!post) return res.status(404).json({ ok: false, message: "Post not found." });
@@ -729,7 +735,9 @@ app.delete("/api/posts/:id", asyncHandler(async (req, res) => {
   return res.json({ ok: true, post });
 }));
 
+// ============================================
 // Upload
+// ============================================
 app.post("/api/upload", asyncHandler(upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, message: "No file provided" });
   try {
@@ -743,7 +751,9 @@ app.post("/api/upload", asyncHandler(upload.single("file"), async (req, res) => 
   }
 }));
 
+// ============================================
 // Notifications
+// ============================================
 app.get("/api/notifications", asyncHandler(async (req, res) => {
   const userEmail = req.query.userEmail;
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
@@ -759,15 +769,18 @@ app.post("/api/notifications/read", asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Presence (in-memory; consider Redis for multi-instance)
+// ============================================
+// Presence
+// ============================================
 const onlineUsers = new Map();
 
 app.get("/api/presence", (_req, res) => {
-  const onlineList = [...onlineUsers.keys()].map(email => ({ email }));
-  res.json({ ok: true, onlineUsers: onlineList });
+  res.json({ ok: true, onlineUsers: [...onlineUsers.keys()].map(email => ({ email })) });
 });
 
+// ============================================
 // Push helpers
+// ============================================
 function pushNotification(toEmail, notification) {
   try {
     io.to(toEmail).emit("notification", notification);
@@ -776,6 +789,7 @@ function pushNotification(toEmail, notification) {
   }
   Notification.create({ ...notification, toEmail }).catch(err => console.error("Notification save error:", err));
 }
+
 function pushMessage(message) {
   try {
     io.to(message.toEmail).emit("newMessage", message);
@@ -785,7 +799,9 @@ function pushMessage(message) {
   }
 }
 
+// ============================================
 // Messages
+// ============================================
 app.get("/api/messages", asyncHandler(async (req, res) => {
   const userEmail = req.query.userEmail;
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
@@ -802,10 +818,7 @@ app.get("/api/messages", asyncHandler(async (req, res) => {
 
   const conversations = [];
   for (const [otherEmail, msgs] of convMap.entries()) {
-    conversations.push({
-      with: otherEmail,
-      messages: msgs
-    });
+    conversations.push({ with: otherEmail, messages: msgs });
   }
 
   res.json({ ok: true, conversations });
@@ -838,7 +851,9 @@ app.post("/api/messages/read", asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Socket.IO handlers
+// ============================================
+// Socket.IO
+// ============================================
 io.on("connection", (socket) => {
   socket.on("identify", (email) => {
     if (!email) return;
@@ -850,10 +865,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     for (const [email, id] of onlineUsers.entries()) {
-      if (id === socket.id) {
-        onlineUsers.delete(email);
-        break;
-      }
+      if (id === socket.id) { onlineUsers.delete(email); break; }
     }
     io.emit("presence", { online: [...onlineUsers.keys()] });
   });
@@ -879,21 +891,25 @@ io.on("connection", (socket) => {
   });
 });
 
-// Static file serving (optional)
+// ============================================
+// Static file serving
+// ============================================
 if (process.env.SERVE_STATIC === "true") {
   app.use(express.static(publicDir));
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(publicDir, "index.html"));
-  });
+  app.get("*", (_req, res) => res.sendFile(path.join(publicDir, "index.html")));
 }
 
-// Error handling
+// ============================================
+// Error handler
+// ============================================
 app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ ok: false, message: err?.message || "Internal server error" });
 });
 
-// Start server
+// ============================================
+// Start
+// ============================================
 server.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
