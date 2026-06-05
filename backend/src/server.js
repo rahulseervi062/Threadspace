@@ -113,6 +113,11 @@ const PostSchema = new mongoose.Schema({
   subreddit: String,
   authorName: String,
   authorEmail: String,
+  poll: {
+    question: String,
+    options: [String],
+    votes: { type: Map, of: Number, default: {} }
+  },
   likes: { type: Number, default: 0 },
   dislikes: { type: Number, default: 0 },
   likedBy: [String],
@@ -575,11 +580,23 @@ app.get("/api/posts/following", asyncHandler(async (req, res) => {
 }));
 
 app.post("/api/posts", asyncHandler(async (req, res) => {
-  const { caption, imageUrl, subreddit, authorName, authorEmail } = req.body ?? {};
-  if (!caption || !imageUrl || !subreddit || !authorName || !authorEmail) {
-    return res.status(400).json({ ok: false, message: "Caption, image, subreddit and author are required." });
+  const { caption, imageUrl, subreddit, authorName, authorEmail, poll } = req.body ?? {};
+  if (!caption || !subreddit || !authorName || !authorEmail) {
+    return res.status(400).json({ ok: false, message: "Caption, subreddit and author are required." });
   }
-  const newPost = await Post.create({ id: Date.now(), caption, imageUrl, subreddit, authorName, authorEmail });
+  // Either imageUrl (media post) or poll (poll post) is required
+  if (!imageUrl && !poll) {
+    return res.status(400).json({ ok: false, message: "Either an image or a poll is required." });
+  }
+  const newPost = await Post.create({
+    id: Date.now(),
+    caption,
+    imageUrl: imageUrl || "",
+    subreddit,
+    authorName,
+    authorEmail,
+    poll: poll || null
+  });
   return res.status(201).json({ ok: true, post: newPost });
 }));
 
