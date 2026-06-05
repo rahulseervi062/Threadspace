@@ -336,7 +336,19 @@ app.post("/api/login", authLimiter, asyncHandler(async (req, res) => {
   const user = await User.findOne({ email: normalizeEmail(email) });
   if (!user) return res.status(401).json({ ok: false, message: "Invalid email or password.", showForgotPassword: true });
 
-  const match = await bcrypt.compare(password, user.password);
+  // Try bcrypt comparison first
+  let match = await bcrypt.compare(password, user.password).catch(() => false);
+  
+  // Fallback: If bcrypt fails and password looks like plain text, compare directly
+  if (!match && !user.password.startsWith("$2")) {
+    match = password === user.password;
+    if (match) {
+      // Hash the password for future use
+      user.password = await bcrypt.hash(password, 10);
+      await user.save();
+    }
+  }
+  
   if (match) return res.json({ ok: true, message: "Login successful.", user: { name: user.name, email: user.email, phone: user.phone || "" } });
 
   const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false });
@@ -951,6 +963,30 @@ app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ ok: false, message: err?.message || "Internal server error" });
 });
+
+// ============================================
+// Admin: Hash all passwords (temporary, remove after use)
+// ============================================
+app.post("/api/admin/migrate-passwords", asyncHandler(async (req, res) => {
+  const { adminToken } = req.body ?? {};
+  if (adminToken !== "migrate-now-112008") {
+    return res.status(403).json({ ok: false, message: "Unauthorized" });
+  }
+
+  const users = await User.find({});
+  let updated = 0;
+
+  for (let user of users) {
+    // Only hash if it doesn't look like a bcrypt hash
+    if (user.password && !user.password.startsWith("$2")) {
+      user.password = await bcrypt.hash(user.password, 10);
+      await user.save();
+      updated++;
+    }
+  }
+
+  return res.json({ ok: true, message: `Migrated ${updated} password(s)` });
+}));
 
 // ============================================
 // Start
