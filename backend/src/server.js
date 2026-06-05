@@ -806,7 +806,7 @@ function pushMessage(message) {
 // Messages
 // ============================================
 app.get("/api/messages", asyncHandler(async (req, res) => {
-  const userEmail = req.query.userEmail;
+  const userEmail = normalizeEmail(String(req.query.userEmail || ""));
   if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
 
   const messages = await Message.find({ $or: [{ fromEmail: userEmail }, { toEmail: userEmail }] }).sort({ createdAt: 1 });
@@ -821,10 +821,35 @@ app.get("/api/messages", asyncHandler(async (req, res) => {
 
   const conversations = [];
   for (const [otherEmail, msgs] of convMap.entries()) {
-    conversations.push({ with: otherEmail, messages: msgs });
+    const lastMessage = msgs[msgs.length - 1];
+    const otherName = lastMessage.fromEmail === userEmail ? lastMessage.toName : lastMessage.fromName;
+    conversations.push({
+      otherEmail,
+      otherName,
+      messages: msgs,
+      lastAt: lastMessage.createdAt,
+      unread: msgs.filter(m => m.toEmail === userEmail && !m.read).length,
+      lastMessage: lastMessage.text || (lastMessage.mediaType ? `${lastMessage.mediaType} attachment` : "")
+    });
   }
 
   res.json({ ok: true, conversations });
+}));
+
+app.get("/api/messages/:otherEmail", asyncHandler(async (req, res) => {
+  const otherEmail = normalizeEmail(String(req.params.otherEmail || ""));
+  const userEmail = normalizeEmail(String(req.query.userEmail || ""));
+  if (!userEmail) return res.status(400).json({ ok: false, message: "userEmail required" });
+  if (!otherEmail) return res.status(400).json({ ok: false, message: "otherEmail required" });
+
+  const messages = await Message.find({
+    $or: [
+      { fromEmail: userEmail, toEmail: otherEmail },
+      { fromEmail: otherEmail, toEmail: userEmail }
+    ]
+  }).sort({ createdAt: 1 });
+
+  res.json({ ok: true, messages });
 }));
 
 app.post("/api/messages", asyncHandler(async (req, res) => {
